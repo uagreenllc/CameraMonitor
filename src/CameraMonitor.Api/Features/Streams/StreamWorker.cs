@@ -39,11 +39,11 @@ public sealed class StreamWorker(
                     var now = clock.GetUtcNow();
                     state.Fps = proc.Progress.Fps;
                     state.Bitrate = proc.Progress.Bitrate;
-                    state.LastProgressAt = proc.LastProgressAt;
-                    if (proc.LastProgressAt is not null && state.Status != StreamStatus.Online)
+                    if (proc.LastProgressAt is { } progressAt)
                     {
-                        store.SetStatus(state, StreamStatus.Online, now);
-                        attempt = 0;
+                        state.LastProgressAt = progressAt; // keep the last real progress across restarts
+                        attempt = 0; // every generation that delivered video restarts the backoff
+                        if (state.Status != StreamStatus.Online) store.SetStatus(state, StreamStatus.Online, now);
                     }
 
                     if (now - (proc.LastProgressAt ?? startedAt) > StallTimeout)

@@ -154,4 +154,43 @@ public sealed class StreamWorkerTests : IAsyncLifetime
         File.Exists(stale).Should().BeFalse();
         Directory.Exists(_spec.LiveDir).Should().BeTrue();
     }
+
+    [Fact]
+    public async Task Last_progress_survives_restart_and_offline_counts_from_it()
+    {
+        var state = Start();
+        await Until(() => Procs() == 1);
+        Proc(0).ReportProgress();
+        await Advance(1);
+        await Until(() => state.Status == StreamStatus.Online);
+        var progressAt = state.LastProgressAt;
+        progressAt.Should().NotBeNull();
+        var t0 = _clock.GetUtcNow(); // ~ time of last progress (within the 1 s tick)
+
+        await Advance(30);
+        state.LastProgressAt.Should().Be(progressAt, "restarts must not erase the last real progress");
+        while (_clock.GetUtcNow() - t0 < TimeSpan.FromSeconds(59)) await Advance(1);
+        state.Status.Should().Be(StreamStatus.Online);
+        while (_clock.GetUtcNow() - t0 < TimeSpan.FromSeconds(75)) await Advance(1); // offline is evaluated when a generation ends (~70 s with backoff)
+        await Until(() => state.Status == StreamStatus.Offline);
+        state.LastProgressAt.Should().Be(progressAt);
+    }
+
+    [Fact]
+    public async Task Backoff_resets_after_each_generation_that_delivered_video()
+    {
+        var state = Start();
+        for (var gen = 0; gen < 2; gen++)
+        {
+            await Until(() => Procs() == gen + 1);
+            Proc(gen).ReportProgress();
+            await Advance(1);
+            Proc(gen).Exit(1);
+            await Advance(1); // monitor tick notices the exit
+            await Until(() => state.Restarts == gen + 1);
+            await Advance(1); // backoff(0) = 1 s
+        }
+
+        await Until(() => Procs() == 3);
+    }
 }
