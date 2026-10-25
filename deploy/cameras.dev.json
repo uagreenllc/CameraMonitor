@@ -1,0 +1,20 @@
+{
+  "Cameras": {
+    "Items": [
+      {
+        "Id": "sim1",
+        "Name": "Симулятор 1",
+        "Host": "localhost",
+        "Vendor": "rtsp",
+        "Lenses": [{ "Id": "main", "RtspUrl": "rtsp://localhost:8554/cam1" }]
+      },
+      {
+        "Id": "sim2",
+        "Name": "Симулятор 2",
+        "Host": "localhost",
+        "Vendor": "rtsp",
+        "Lenses": [{ "Id": "main", "RtspUrl": "rtsp://localhost:8554/cam2" }]
+      }
+    ]
+  }
+}

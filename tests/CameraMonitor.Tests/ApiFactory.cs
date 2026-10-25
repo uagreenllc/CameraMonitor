@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.Configuration;
 
 namespace CameraMonitor.Tests;
 
@@ -14,12 +13,10 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         var cameras = Path.Combine(_dir, "cameras.json");
         File.WriteAllText(cameras, """{"Cameras":{"Items":[]}}""");
 
-        builder.ConfigureAppConfiguration((_, cfg) => cfg.AddInMemoryCollection(new Dictionary<string, string?>
-        {
-            ["Server:DataDir"] = _dir,
-            ["Server:LiveDir"] = Path.Combine(_dir, "live"),
-            ["Server:CamerasFile"] = cameras,
-        }));
+        // UseSetting (host settings) is visible to Program.cs at CreateBuilder time, unlike ConfigureAppConfiguration.
+        builder.UseSetting("Server:DataDir", _dir);
+        builder.UseSetting("Server:LiveDir", Path.Combine(_dir, "live"));
+        builder.UseSetting("Server:CamerasFile", cameras);
     }
 
     protected override void Dispose(bool disposing)
