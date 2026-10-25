@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using CameraMonitor.Api.Features.Archive;
 using CameraMonitor.Api.Features.Cameras;
 using CameraMonitor.Api.Features.Status;
 using CameraMonitor.Api.Features.Streams;
@@ -27,6 +28,11 @@ builder.Services.AddSingleton<FfmpegFactory>(sp => (args, name) => new FfmpegPro
 builder.Services.AddDbContext<AppDbContext>((sp, o) =>
     o.UseSqlite(DbSetup.ConnectionString(sp.GetRequiredService<IOptions<ServerOptions>>().Value.DataDir)));
 builder.Services.AddSingleton<TileService>();
+builder.Services.AddSingleton<IDurationProbe, FfprobeDurationProbe>();
+builder.Services.AddSingleton<SegmentIndexer>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<SegmentIndexer>());
+builder.Services.AddSingleton<DirectoryScanner>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<DirectoryScanner>());
 builder.Services.AddHostedService<StreamSupervisor>();
 
 var app = builder.Build();

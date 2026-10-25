@@ -14,6 +14,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "cm-tests", Guid.NewGuid().ToString("N"));
     private readonly string _data = $"./cm-tests-data/{Guid.NewGuid():N}"; // relative: ffmpeg paths must not contain a drive colon
+    public string DataDir => _data;
+
     private FfmpegFactory _ffmpeg = (_, _) => new FakeFfmpegProcess(TimeProvider.System);
     private CamerasOptions _cameras = new();
 

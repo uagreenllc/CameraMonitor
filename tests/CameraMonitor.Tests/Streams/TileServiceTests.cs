@@ -34,6 +34,7 @@ public class TileServiceTests
     }
 }
 
+[Collection("real-ffmpeg")]
 public class TileServiceGrabTests
 {
     private sealed class ManualClock : TimeProvider

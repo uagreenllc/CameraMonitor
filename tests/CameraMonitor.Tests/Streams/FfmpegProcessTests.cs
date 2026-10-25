@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CameraMonitor.Tests.Streams;
 
+[Collection("real-ffmpeg")]
 public class FfmpegProcessTests
 {
     private static FfmpegProcess Create(params string[] args)
