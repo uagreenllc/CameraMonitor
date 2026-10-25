@@ -29,8 +29,10 @@ sudo mkdir -p deploy/data && sudo chown -R 1654:1654 deploy/data
 cp deploy/cameras.example.json deploy/cameras.json
 cp -r deploy/secrets.example deploy/secrets
 echo 'ПАРОЛЬ_КАМЕР' > deploy/secrets/cam_password   # без зайвих пробілів
-chmod 600 deploy/secrets/cam_password
+sudo chown 1654:1654 deploy/secrets/cam_password && sudo chmod 600 deploy/secrets/cam_password
 ```
+
+Контейнер працює від uid 1654, тож без `chown` він не прочитає файл із правами 600 і не запуститься.
 
 Поля `deploy/cameras.json`:
 

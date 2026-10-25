@@ -1,1 +1,1 @@
-Скопіюйте в `deploy/secrets/` (`cp -r deploy/secrets.example deploy/secrets`), вкажіть справжній пароль у `cam_password` і виконайте `chmod 600 deploy/secrets/cam_password`.
+Скопіюйте в `deploy/secrets/` (`cp -r deploy/secrets.example deploy/secrets`), вкажіть справжній пароль у `cam_password` і виконайте `sudo chown 1654:1654 deploy/secrets/cam_password && sudo chmod 600 deploy/secrets/cam_password` (контейнер працює від uid 1654, інакше він не прочитає файл).
