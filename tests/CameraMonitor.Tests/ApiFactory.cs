@@ -47,10 +47,17 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
-        if (disposing && Directory.Exists(_data)) Directory.Delete(_data, recursive: true);
-        if (disposing && Directory.Exists(_dir))
+        if (disposing) DeleteBestEffort(_data);
+        if (disposing) DeleteBestEffort(_dir);
+    }
+
+    // SQLite WAL/SHM files can linger briefly on Windows after the host is disposed.
+    private static void DeleteBestEffort(string dir)
+    {
+        for (var i = 0; i < 5 && Directory.Exists(dir); i++)
         {
-            Directory.Delete(_dir, recursive: true);
+            try { Directory.Delete(dir, recursive: true); }
+            catch (IOException) { Thread.Sleep(100); }
         }
     }
 }
