@@ -47,6 +47,22 @@ public class LiveEndpointTests
         finally { Directory.Delete(dir, true); }
     }
 
+    [Theory]
+    [InlineData("/live/a/b/%2e%2e/index.m3u8")]
+    [InlineData(@"/live/a/b\..\x.ts")]
+    public async Task Encoded_or_backslash_traversal_is_never_served(string url)
+    {
+        using var factory = new ApiFactory();
+        var dir = SetupLive(factory);
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(dir, "index.m3u8"), "#EXTM3U\n");
+            var resp = await factory.CreateClient().GetAsync(url);
+            resp.StatusCode.Should().BeOneOf(HttpStatusCode.BadRequest, HttpStatusCode.NotFound);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
     [Fact]
     public async Task Missing_file_404()
     {

@@ -4,7 +4,7 @@ namespace CameraMonitor.Api.Infrastructure;
 
 public static partial class SafeName
 {
-    [GeneratedRegex("^[A-Za-z0-9_.-]{1,64}$")]
+    [GeneratedRegex(@"\A[A-Za-z0-9_.-]{1,64}\z")]
     private static partial Regex Pattern();
 
     /// <summary>True for a single URL path segment that cannot escape its directory.</summary>

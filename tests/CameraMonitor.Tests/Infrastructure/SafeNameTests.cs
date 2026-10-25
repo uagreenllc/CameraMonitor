@@ -12,6 +12,7 @@ public class SafeNameTests
     [InlineData("a/b", false)]
     [InlineData(@"a\b", false)]
     [InlineData("", false)]
+    [InlineData("a\n", false)]
     public void IsSafe_checks_segment(string name, bool expected) => SafeName.IsSafe(name).Should().Be(expected);
 
     [Fact]
