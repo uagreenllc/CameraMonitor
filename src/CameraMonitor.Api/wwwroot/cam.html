@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Камера</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<nav id="nav"></nav>
+<p><a href="index.html">← Камери</a></p>
+<h1 id="title">Камера</h1>
+<video id="v" controls autoplay muted playsinline></video>
+<script src="vendor/hls.min.js"></script>
+<script src="app.js"></script>
+<script>
+document.getElementById('nav').innerHTML = navHtml('');
+const q = new URLSearchParams(location.search);
+const cam = q.get('cam') || '', lens = q.get('lens') || '';
+const video = document.getElementById('v');
+const src = `/live/${encodeURIComponent(cam)}/${encodeURIComponent(lens)}/index.m3u8`;
+if (window.Hls && Hls.isSupported()) {
+  const hls = new Hls({ liveSyncDurationCount: 3, lowLatencyMode: false });
+  hls.loadSource(src);
+  hls.attachMedia(video);
+} else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+  video.src = src;
+}
+api('/api/cameras').then(cams => {
+  const c = cams.find(x => x.id === cam);
+  if (c) { document.title = document.getElementById('title').textContent = `${c.name} · ${lens}`; }
+}).catch(() => {});
+</script>
+</body>
+</html>

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Камери</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<nav id="nav"></nav>
+<h1>Камери</h1>
+<div id="grid" class="grid"></div>
+<script src="app.js"></script>
+<script>
+document.getElementById('nav').innerHTML = navHtml('index.html');
+const grid = document.getElementById('grid');
+function tileId(c, l) { return 't-' + c + '-' + l; }
+async function refreshList() {
+  try {
+    const cams = await api('/api/cameras');
+    const seen = new Set();
+    for (const c of cams) for (const l of c.lenses) {
+      const id = tileId(c.id, l.id);
+      seen.add(id);
+      let a = document.getElementById(id);
+      if (!a) {
+        a = document.createElement('a');
+        a.id = id; a.className = 'tile';
+        a.href = `cam.html?cam=${encodeURIComponent(c.id)}&lens=${encodeURIComponent(l.id)}`;
+        a.dataset.cam = c.id; a.dataset.lens = l.id;
+        a.innerHTML = '<div class="shot"></div><div class="caption"></div>';
+        grid.appendChild(a);
+        loadImage(a);
+      }
+      a.dataset.status = l.status;
+      a.querySelector('.caption').innerHTML =
+        `<span class="dot ${esc(l.status)}"></span>${esc(c.name)} · ${esc(l.id)} — ${statusLabel(l.status)}`;
+      const ph = a.querySelector('.ph');
+      if (ph) ph.textContent = statusLabel(l.status);
+    }
+    for (const a of [...grid.children]) if (!seen.has(a.id)) a.remove();
+  } catch (e) { /* retry on next tick */ }
+}
+function loadImage(a) {
+  const shot = a.querySelector('.shot');
+  const img = new Image();
+  img.onload = () => { shot.replaceChildren(img); };
+  img.onerror = () => {
+    if (!shot.querySelector('.ph')) {
+      const ph = document.createElement('span');
+      ph.className = 'ph'; ph.textContent = statusLabel(a.dataset.status);
+      shot.replaceChildren(ph);
+    }
+  };
+  img.src = `/api/tile/${encodeURIComponent(a.dataset.cam)}/${encodeURIComponent(a.dataset.lens)}.jpg?t=${Date.now()}`;
+}
+function refreshImages() { for (const a of grid.children) loadImage(a); }
+refreshList();
+setInterval(refreshList, 10000);
+setInterval(refreshImages, 2000);
+</script>
+</body>
+</html>

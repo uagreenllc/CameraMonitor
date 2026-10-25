@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Статус</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<nav id="nav"></nav>
+<h1>Статус</h1>
+<div class="scroll">
+<table>
+<thead><tr><th>Камера</th><th>Лінза</th><th>Стан</th><th>Останній кадр</th><th>Рестарти</th><th>fps</th><th>Бітрейт</th></tr></thead>
+<tbody id="rows"></tbody>
+</table>
+</div>
+<script src="app.js"></script>
+<script>
+document.getElementById('nav').innerHTML = navHtml('status.html');
+async function refresh() {
+  try {
+    const { streams } = await api('/api/status');
+    document.getElementById('rows').innerHTML = streams.map(s =>
+      `<tr><td>${esc(s.camera)}</td><td>${esc(s.lens)}</td>` +
+      `<td><span class="dot ${esc(s.status)}"></span> ${statusLabel(s.status)}</td>` +
+      `<td>${fmtTime(s.lastProgressAt)}</td><td>${s.restarts}</td><td>${s.fps}</td><td>${esc(s.bitrate ?? '—')}</td></tr>`).join('');
+  } catch (e) { /* retry on next tick */ }
+}
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>
