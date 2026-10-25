@@ -23,18 +23,17 @@ public sealed class DirectoryScanner(
     {
         try
         {
-            for (var waited = 0; store.All().Count == 0 && waited < 10; waited++) await Task.Delay(TimeSpan.FromSeconds(1), clock, ct);
+            for (var waited = 0; !store.All().Any(s => s.RecDir.Length > 0) && waited < 10; waited++)
+                await Task.Delay(TimeSpan.FromSeconds(1), clock, ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
 
-        var full = true;
+        var fullyScanned = new HashSet<StreamKey>();
         while (!ct.IsCancellationRequested)
         {
             try
             {
-                foreach (var state in store.All())
-                    if (state.RecDir.Length > 0) await ScanAsync(state.RecDir, state.Key, full, ct);
-                full = false;
+                await RunPassAsync(fullyScanned, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
             catch (Exception ex)
@@ -44,6 +43,19 @@ public sealed class DirectoryScanner(
 
             try { await Task.Delay(Interval, clock, ct); }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
+        }
+    }
+
+    /// <summary>One pass over all streams; a stream gets a full scan the first time its RecDir is known.</summary>
+    internal async Task RunPassAsync(HashSet<StreamKey> fullyScanned, CancellationToken ct)
+    {
+        var states = store.All();
+        fullyScanned.IntersectWith(states.Select(s => s.Key));
+        foreach (var state in states)
+        {
+            if (state.RecDir.Length == 0) continue;
+            await ScanAsync(state.RecDir, state.Key, full: !fullyScanned.Contains(state.Key), ct);
+            fullyScanned.Add(state.Key);
         }
     }
 
