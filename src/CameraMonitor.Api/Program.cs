@@ -8,6 +8,7 @@ using CameraMonitor.Api.Infrastructure.Db;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Serilog;
+using Serilog.Events;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseSerilog((ctx, cfg) => cfg.ReadFrom.Configuration(ctx.Configuration));
@@ -15,7 +16,10 @@ builder.Host.UseSerilog((ctx, cfg) => cfg.ReadFrom.Configuration(ctx.Configurati
 var server = builder.Configuration.GetSection(ServerOptions.Section).Get<ServerOptions>() ?? new();
 builder.Configuration.AddJsonFile(Path.GetFullPath(server.CamerasFile), optional: false, reloadOnChange: true);
 
-builder.Services.AddOptions<ServerOptions>().BindConfiguration(ServerOptions.Section).ValidateOnStart();
+builder.Services.AddOptions<ServerOptions>().BindConfiguration(ServerOptions.Section)
+    .Validate(o => !o.DataDir.Contains(':') && !o.LiveDir.Contains(':'),
+        "Server:DataDir and Server:LiveDir must be relative or colon-free paths (ffmpeg tee syntax uses ':'); on Windows use ./data and ./data/live")
+    .ValidateOnStart();
 builder.Services.AddOptions<CamerasOptions>().BindConfiguration(CamerasOptions.Section).ValidateOnStart();
 builder.Services.AddSingleton<IValidateOptions<CamerasOptions>, CamerasOptionsValidator>();
 builder.Services.AddSingleton(TimeProvider.System);
@@ -41,7 +45,12 @@ builder.Services.AddHostedService<StreamSupervisor>();
 
 var app = builder.Build();
 await DbSetup.MigrateAsync(app.Services, CancellationToken.None);
-app.UseSerilogRequestLogging();
+// Tiles and HLS are ~10 req/s per open grid: keep them out of Information.
+app.UseSerilogRequestLogging(o => o.GetLevel = (ctx, _, ex) =>
+    ex != null || ctx.Response.StatusCode >= 500 ? LogEventLevel.Error
+    : ctx.Response.StatusCode >= 400 ? LogEventLevel.Warning
+    : ctx.Request.Path.StartsWithSegments("/api/tile") || ctx.Request.Path.StartsWithSegments("/live") || ctx.Request.Path.StartsWithSegments("/seg") ? LogEventLevel.Debug
+    : LogEventLevel.Information);
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.MapHealthChecks("/health");
