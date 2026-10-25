@@ -35,4 +35,11 @@ public class FfmpegProcessTests
 
         await p.Exited.WaitAsync(TimeSpan.FromSeconds(5));
     }
+
+    [Fact]
+    public void RedactLine_hides_camera_password()
+    {
+        FfmpegProcess.RedactLine("Error opening input file rtsp://h:554/user=a&password=s3cret&channel=1")
+            .Should().NotContain("s3cret");
+    }
 }

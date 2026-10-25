@@ -1,3 +1,4 @@
+using CameraMonitor.Api.Features.Cameras;
 using System.Diagnostics;
 
 namespace CameraMonitor.Api.Features.Streams;
@@ -7,6 +8,9 @@ public sealed class FfmpegProcess(
 {
     private readonly TaskCompletionSource<int> _exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Process? _process;
+
+    /// <summary>ffmpeg echoes the input URL (with camera credentials) in its messages.</summary>
+    public static string RedactLine(string line) => RtspUrlBuilder.Redact(line);
 
     public DateTimeOffset? LastProgressAt { get; private set; }
     public ProgressState Progress { get; } = new();
@@ -36,7 +40,7 @@ public sealed class FfmpegProcess(
         var stderr = Task.Run(async () =>
         {
             while (await process.StandardError.ReadLineAsync() is { } line)
-                logger.LogWarning("[{Name}] {Line}", logName, line);
+                logger.LogWarning("[{Name}] {Line}", logName, RedactLine(line));
         });
         _ = Task.Run(async () =>
         {
