@@ -1,0 +1,28 @@
+services:
+  cameramonitor:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    # Host-мережа: потрібна для WS-Discovery (multicast) у Плані C; сервіс лише для LAN.
+    # Вебінтерфейс: http://<сервер>:8080/
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./data:/data
+      - ./cameras.json:/app/cameras.json:ro
+      - ./secrets:/run/secrets:ro
+    tmpfs:
+      - /run/live:size=512m
+    environment:
+      Cameras__DefaultPasswordFile: /run/secrets/cam_password
+      Serilog__MinimumLevel__Default: Information
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
