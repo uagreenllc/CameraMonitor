@@ -1,8 +1,11 @@
 using System.Net;
 using System.Text.Json;
+using CameraMonitor.Api.Features.Archive;
+using CameraMonitor.Api.Features.Cameras;
 using CameraMonitor.Api.Infrastructure.Db;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace CameraMonitor.Tests.Archive;
 
@@ -111,19 +114,51 @@ public sealed class ArchiveEndpointTests
     }
 
     [Fact]
-    public async Task Export_aborts_when_ffmpeg_cannot_run()
+    public async Task Export_aborts_when_ffmpeg_fails_after_writing_bytes()
     {
-        using var f = new ApiFactory().WithSetting("Server:FfmpegPath", "no-such-ffmpeg-binary");
-        var c = f.CreateClient();
-        Directory.CreateDirectory($"{f.DataDir}/rec/a/b/20261025/14");
-        File.WriteAllBytes($"{f.DataDir}/rec/a/b/20261025/14/140000.ts", [1]);
-        await SeedRowAsync(f, "rec/a/b/20261025/14/140000.ts");
-        var act = async () =>
+        var dir = Path.GetFullPath($"cm-tests-script-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
         {
-            var r = await c.GetAsync($"/api/export?cam=a&lens=b&from={Iso(T)}&to={Iso(T.AddSeconds(10))}");
-            return r.IsSuccessStatusCode ? await r.Content.ReadAsByteArrayAsync() : throw new HttpRequestException("status");
-        };
-        await act.Should().ThrowAsync<Exception>();
+            string script;
+            if (OperatingSystem.IsWindows())
+            {
+                script = Path.Combine(dir, "fake.cmd");
+                File.WriteAllText(script, string.Join(Environment.NewLine, "@echo off", "echo partial", "exit /b 1"));
+            }
+            else
+            {
+                script = Path.Combine(dir, "fake.sh");
+                File.WriteAllText(script, string.Join(Environment.NewLine, "#!/bin/sh", "printf partial", "exit 1"));
+                File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
+            using var f = new ApiFactory().WithSetting("Server:FfmpegPath", script);
+            var c = f.CreateClient();
+            Directory.CreateDirectory($"{f.DataDir}/rec/a/b/20261025/14");
+            File.WriteAllBytes($"{f.DataDir}/rec/a/b/20261025/14/140000.ts", [1]);
+            await SeedRowAsync(f, "rec/a/b/20261025/14/140000.ts");
+
+            var read = async () =>
+            {
+                using var r = await c.GetAsync($"/api/export?cam=a&lens=b&from={Iso(T)}&to={Iso(T.AddSeconds(10))}", HttpCompletionOption.ResponseHeadersRead);
+                r.StatusCode.Should().Be(HttpStatusCode.OK);
+                return await r.Content.ReadAsByteArrayAsync();
+            };
+            // the 200 is already committed with partial bytes; the client must see an aborted body, never a "complete" one
+            await read.Should().ThrowAsync<Exception>();
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task WriteMp4Async_timeout_is_a_failure_code()
+    {
+        var svc = new ExportService(Options.Create(new ServerOptions()));
+        var code = await svc.WriteMp4Async(["x.ts"], Stream.Null, CancellationToken.None, TimeSpan.Zero);
+        code.Should().NotBe(0);
     }
 
     [Fact]
@@ -131,8 +166,19 @@ public sealed class ArchiveEndpointTests
     {
         using var f = new ApiFactory();
         var c = f.CreateClient();
-        await SeedRowAsync(f, "../../etc/passwd");
-        var r = await c.GetAsync($"/api/export?cam=a&lens=b&from={Iso(T)}&to={Iso(T.AddSeconds(10))}");
-        r.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var name = $"outside-{Guid.NewGuid():N}.ts";
+        Directory.CreateDirectory(f.DataDir);
+        var outside = Path.GetFullPath(Path.Combine(f.DataDir, "..", name));
+        File.WriteAllBytes(outside, [1]);
+        try
+        {
+            await SeedRowAsync(f, "../" + name);
+            var r = await c.GetAsync($"/api/export?cam=a&lens=b&from={Iso(T)}&to={Iso(T.AddSeconds(10))}");
+            r.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        }
+        finally
+        {
+            File.Delete(outside);
+        }
     }
 }

@@ -82,12 +82,11 @@ public static partial class ArchiveEndpoints
         });
 
         app.MapGet("/api/export", async (string cam, string lens, string? from, string? to, AppDbContext db, ExportService export,
-            IOptions<ServerOptions> server, HttpContext http, CancellationToken ct) =>
+            IOptions<ServerOptions> server, ILogger<ExportService> log, HttpContext http, CancellationToken ct) =>
         {
             if (ParseRange(cam, lens, from, to, ExportService.MaxRange, out var f, out var t) is { } bad) return bad;
             var rows = await OverlappingAsync(db, cam, lens, f, t, server.Value.SegmentSeconds, ct);
             var root = Path.GetFullPath(Path.Combine(server.Value.DataDir, "rec")) + Path.DirectorySeparatorChar;
-            var log = http.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("Export");
             var paths = new List<string>();
             foreach (var r in rows)
             {
