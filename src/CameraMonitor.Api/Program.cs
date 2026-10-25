@@ -1,4 +1,7 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using CameraMonitor.Api.Features.Cameras;
+using CameraMonitor.Api.Features.Streams;
 using Microsoft.Extensions.Options;
 using Serilog;
 
@@ -13,12 +16,19 @@ builder.Services.AddOptions<CamerasOptions>().BindConfiguration(CamerasOptions.S
 builder.Services.AddSingleton<IValidateOptions<CamerasOptions>, CamerasOptionsValidator>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddHealthChecks();
+builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase)));
+builder.Services.AddSingleton<StreamStateStore>();
+builder.Services.AddSingleton<FfmpegFactory>(sp => (args, name) => new FfmpegProcess(
+    sp.GetRequiredService<IOptions<ServerOptions>>().Value.FfmpegPath, args, name,
+    sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILoggerFactory>().CreateLogger("ffmpeg")));
+builder.Services.AddHostedService<StreamSupervisor>();
 
 var app = builder.Build();
 app.UseSerilogRequestLogging();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.MapHealthChecks("/health");
+app.MapCamerasEndpoints();
 app.Run();
 
 public partial class Program { }
