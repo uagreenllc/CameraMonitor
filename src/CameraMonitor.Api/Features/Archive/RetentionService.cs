@@ -34,23 +34,34 @@ public sealed class RetentionService(IServiceScopeFactory scopes, IOptions<Serve
         var archiveBytes = await db.Segments.SumAsync(s => (long?)s.Bytes, ct) ?? 0;
         var plan = RetentionPlanner.Plan(new RetentionInput(oldest, now, TimeSpan.FromDays(opt.RetentionDays), FreeBytes(opt.DataDir), opt.MinFreeGb * 1024L * 1024 * 1024));
 
+        var deleted = new List<SegmentRow>(plan.Count);
+        var failed = new List<string>();
         foreach (var s in plan)
         {
             try { File.Delete(Path.Combine(opt.DataDir, s.Path)); }
             catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException) { }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                failed.Add(s.Path); // keep the row: the operator sees it again on the next run
+                continue;
+            }
+
+            deleted.Add(s);
             archiveBytes -= s.Bytes;
         }
-        db.Segments.RemoveRange(plan);
+
+        if (failed.Count > 0) logger.LogWarning("Retention could not delete {Count} segment files, e.g. {Path}", failed.Count, failed[0]);
+        db.Segments.RemoveRange(deleted);
         await db.SaveChangesAsync(ct);
-        foreach (var d in plan.Select(s => Path.GetDirectoryName(Path.Combine(opt.DataDir, s.Path))!).Distinct())
+        foreach (var d in deleted.Select(s => Path.GetDirectoryName(Path.Combine(opt.DataDir, s.Path))!).Distinct())
             RemoveIfEmpty(d, 2); // hour, then day; never above rec/{cam}/{lens}
 
         status.OldestSegmentUtc = await db.Segments.MinAsync(s => (DateTime?)s.StartUtc, ct);
         status.ArchiveBytes = Math.Max(0, archiveBytes);
         status.FreeBytes = FreeBytes(opt.DataDir);
         status.LastRunUtc = now;
-        status.LastDeleted = plan.Count;
-        if (plan.Count > 0) logger.LogInformation("Retention deleted {Count} segments", plan.Count);
+        status.LastDeleted = deleted.Count;
+        if (deleted.Count > 0) logger.LogInformation("Retention deleted {Count} segments", deleted.Count);
     }
 
     private static void RemoveIfEmpty(string dir, int levels)
@@ -62,7 +73,7 @@ public sealed class RetentionService(IServiceScopeFactory scopes, IOptions<Serve
                 if (!Directory.Exists(dir) || Directory.EnumerateFileSystemEntries(dir).Any()) return;
                 Directory.Delete(dir);
             }
-            catch (IOException) { return; }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return; }
             dir = Path.GetDirectoryName(dir)!;
         }
     }

@@ -12,9 +12,9 @@ public sealed class DirectoryScanner(
     public static readonly TimeSpan MinAge = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan Interval = TimeSpan.FromSeconds(60);
 
-    /// <summary>Hour directories (recDir/yyyyMMdd/HH) ordered by last write time, newest first.</summary>
+    /// <summary>Hour directories (recDir/yyyyMMdd/HH) ordered by name (= time), newest first; mtime is unreliable (retention touches old dirs).</summary>
     public static IReadOnlyList<string> RecentHourDirs(string recDir, int count) =>
-        HourDirs(recDir).OrderByDescending(Directory.GetLastWriteTimeUtc).Take(count).ToList();
+        HourDirs(recDir).OrderByDescending(d => d, StringComparer.Ordinal).Take(count).ToList();
 
     private static IEnumerable<string> HourDirs(string recDir) =>
         Directory.Exists(recDir) ? Directory.EnumerateDirectories(recDir).SelectMany(Directory.EnumerateDirectories) : [];
@@ -70,12 +70,25 @@ public sealed class DirectoryScanner(
         foreach (var dir in dirs)
         {
             var prefix = SegmentIndexer.RelativePath(dataDir, dir) + "/";
-            var known = (await db.Segments.Where(s => s.Path.StartsWith(prefix)).Select(s => s.Path).ToListAsync(ct)).ToHashSet();
+            // camera+lens hit the (CameraId, LensId, StartUtc) index; StartsWith alone is a full scan on SQLite
+            var known = (await db.Segments
+                .Where(s => s.CameraId == key.CameraId && s.LensId == key.LensId && s.Path.StartsWith(prefix))
+                .Select(s => s.Path).ToListAsync(ct)).ToHashSet();
             foreach (var abs in Directory.EnumerateFiles(dir, "*.ts"))
             {
                 var rel = SegmentIndexer.RelativePath(dataDir, abs);
-                var written = File.GetLastWriteTimeUtc(abs);
-                if (written >= cutoff || known.Contains(rel)) continue;
+                if (known.Contains(rel)) continue; // before any stat: a full scan touches every indexed file
+                var info = new FileInfo(abs);
+                var written = info.LastWriteTimeUtc;
+                if (written >= cutoff) continue;
+                if (info.Length == 0)
+                {
+                    // hls.js chokes on an empty TS in a VOD playlist
+                    try { info.Delete(); }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+                    logger.LogDebug("Deleted empty orphan segment {Path}", rel);
+                    continue;
+                }
 
                 var duration = await probe.ProbeAsync(abs, ct) ?? TimeSpan.FromSeconds(server.Value.SegmentSeconds);
                 db.Segments.Add(new SegmentRow
@@ -85,7 +98,7 @@ public sealed class DirectoryScanner(
                     StartUtc = DateTime.SpecifyKind(written - duration, DateTimeKind.Utc),
                     DurationMs = (int)Math.Round(duration.TotalMilliseconds),
                     Path = rel,
-                    Bytes = new FileInfo(abs).Length,
+                    Bytes = info.Length,
                     Discontinuity = true,
                 });
                 try

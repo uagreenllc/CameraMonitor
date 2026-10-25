@@ -28,7 +28,7 @@ public sealed class SegmentIndexerTests
     [Fact]
     public async Task IndexOnceAsync_inserts_new_entries_once()
     {
-        using var factory = new ApiFactory();
+        using var factory = new ApiFactory().WithoutHostedServices();
         var recDir = $"{factory.DataDir}/rec/a/b";
         Directory.CreateDirectory($"{recDir}/20261025/14");
         File.WriteAllText($"{recDir}/archive.m3u8", HlsPlaylistParserTests.Fixture);

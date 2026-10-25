@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 
 namespace CameraMonitor.Tests;
 
@@ -42,6 +43,15 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         return this;
     }
 
+    private bool _noHostedServices;
+
+    /// <summary>Removes every IHostedService (for tests that call the services directly). Call before CreateClient().</summary>
+    public ApiFactory WithoutHostedServices()
+    {
+        _noHostedServices = true;
+        return this;
+    }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         Directory.CreateDirectory(_dir);
@@ -55,7 +65,11 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         builder.UseSetting("Server:MinFreeGb", "0"); // tests must not depend on the dev machine's free space
         builder.UseSetting("Server:RetentionDays", "36500"); // fixed-date fixtures must not age out
         foreach (var (k, v) in _settings) builder.UseSetting(k, v);
-        builder.ConfigureTestServices(services => services.Replace(ServiceDescriptor.Singleton(_ffmpeg)));
+        builder.ConfigureTestServices(services =>
+        {
+            services.Replace(ServiceDescriptor.Singleton(_ffmpeg));
+            if (_noHostedServices) services.RemoveAll<IHostedService>();
+        });
     }
 
     protected override void Dispose(bool disposing)
