@@ -153,7 +153,7 @@ public sealed class ArchiveEndpointTests
         }
     }
 
-    [Fact]
+    [FfmpegFact]
     public async Task WriteMp4Async_timeout_is_a_failure_code()
     {
         var svc = new ExportService(Options.Create(new ServerOptions()));

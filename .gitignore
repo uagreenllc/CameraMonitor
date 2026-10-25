@@ -486,4 +486,6 @@ $RECYCLE.BIN/
 data/
 secrets/
 deploy/data/
+deploy/config/
+deploy/cameras.json
 *.sqlite*

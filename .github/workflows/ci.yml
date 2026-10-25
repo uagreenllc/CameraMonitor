@@ -10,6 +10,7 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 9.0.x
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: dotnet format CameraMonitor.sln --verify-no-changes
       - run: dotnet build CameraMonitor.sln -c Release
       - run: dotnet test CameraMonitor.sln -c Release --no-build

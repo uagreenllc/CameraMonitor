@@ -26,7 +26,7 @@ sudo mkdir -p deploy/data && sudo chown -R 1654:1654 deploy/data
 ## 4. Конфігурація
 
 ```bash
-cp deploy/cameras.example.json deploy/cameras.json
+mkdir -p deploy/config && cp deploy/cameras.example.json deploy/config/cameras.json
 cp -r deploy/secrets.example deploy/secrets
 echo 'ПАРОЛЬ_КАМЕР' > deploy/secrets/cam_password   # без зайвих пробілів
 sudo chown 1654:1654 deploy/secrets/cam_password && sudo chmod 600 deploy/secrets/cam_password
@@ -34,7 +34,9 @@ sudo chown 1654:1654 deploy/secrets/cam_password && sudo chmod 600 deploy/secret
 
 Контейнер працює від uid 1654, тож без `chown` він не прочитає файл із правами 600 і не запуститься.
 
-Поля `deploy/cameras.json`:
+Усі поля лежать усередині об'єкта-обгортки `Cameras` (див. `deploy/cameras.example.json`). Сервіс сам перечитує файл приблизно за 5 с після збереження — перезапуск контейнера не потрібен.
+
+Поля `deploy/config/cameras.json`:
 
 - `DefaultPasswordFile` — файл із паролем за замовчуванням (у контейнері `/run/secrets/cam_password`, не змінювати).
 - `Items[].Id` — унікальний ідентифікатор камери (латиниця, використовується в шляхах архіву).

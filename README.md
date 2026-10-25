@@ -27,6 +27,6 @@ Docker-образ з ffmpeg, host-мережа, дані в `deploy/data`. По�
 
 ```bash
 git clone <repo> && cd CameraMonitor
-cp deploy/cameras.example.json deploy/cameras.json && cp -r deploy/secrets.example deploy/secrets   # відредагувати
+mkdir -p deploy/config && cp deploy/cameras.example.json deploy/config/cameras.json && cp -r deploy/secrets.example deploy/secrets   # відредагувати
 docker compose -f deploy/docker-compose.yml up -d --build   # UI: http://<сервер>:8080/
 ```

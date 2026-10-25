@@ -15,7 +15,7 @@ ENV TZ=Europe/Kyiv \
     ASPNETCORE_HTTP_PORTS=8080 \
     Server__DataDir=/data \
     Server__LiveDir=/run/live \
-    Server__CamerasFile=/app/cameras.json
+    Server__CamerasFile=/app/config/cameras.json
 WORKDIR /app
 COPY --from=build /app .
 USER app

@@ -9,12 +9,15 @@ services:
     restart: unless-stopped
     volumes:
       - ./data:/data
-      - ./cameras.json:/app/cameras.json:ro
+      # каталог, а не файл: bind-mount одного файлу ламає перечитування при збереженні редактором
+      - ./config:/app/config:ro
       - ./secrets:/run/secrets:ro
     tmpfs:
       - /run/live:size=512m
     environment:
       Cameras__DefaultPasswordFile: /run/secrets/cam_password
+      Server__CamerasFile: /app/config/cameras.json
+      DOTNET_USE_POLLING_FILE_WATCHER: "1"
       Serilog__MinimumLevel__Default: Information
     logging:
       driver: json-file
