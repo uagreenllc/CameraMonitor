@@ -183,14 +183,43 @@ public sealed class StreamWorkerTests : IAsyncLifetime
         for (var gen = 0; gen < 2; gen++)
         {
             await Until(() => Procs() == gen + 1);
-            Proc(gen).ReportProgress();
-            await Advance(1);
+            for (var i = 0; i < 31; i++) // healthy for >= 30 s
+            {
+                Proc(gen).ReportProgress();
+                await Advance(1);
+            }
+
             Proc(gen).Exit(1);
             await Advance(1); // monitor tick notices the exit
             await Until(() => state.Restarts == gen + 1);
             await Advance(1); // backoff(0) = 1 s
         }
 
+        await Until(() => Procs() == 3);
+    }
+
+    [Fact]
+    public async Task Short_lived_generations_keep_growing_backoff()
+    {
+        var state = Start();
+        for (var gen = 0; gen < 2; gen++)
+        {
+            await Until(() => Procs() == gen + 1);
+            for (var i = 0; i < 5; i++) // delivers video, but dies after 5 s
+            {
+                Proc(gen).ReportProgress();
+                await Advance(1);
+            }
+
+            Proc(gen).Exit(1);
+            await Advance(1);
+            await Until(() => state.Restarts == gen + 1);
+            await Advance(1);
+        }
+
+        await Task.Delay(50);
+        Procs().Should().Be(2, "the second short-lived generation must wait backoff(1) = 2 s, not 1 s");
+        await Advance(1);
         await Until(() => Procs() == 3);
     }
 }

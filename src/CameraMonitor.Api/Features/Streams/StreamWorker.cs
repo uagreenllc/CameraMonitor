@@ -7,6 +7,7 @@ public sealed class StreamWorker(
 {
     public static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(10);
     public static readonly TimeSpan OfflineAfter = TimeSpan.FromSeconds(60);
+    public static readonly TimeSpan MinHealthyRun = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan Tick = TimeSpan.FromSeconds(1);
 
     public async Task RunAsync(CancellationToken ct)
@@ -32,6 +33,7 @@ public sealed class StreamWorker(
                     spec.Key.ToString());
                 await proc.StartAsync(ct);
                 var startedAt = clock.GetUtcNow();
+                var stalled = false;
 
                 while (!proc.Exited.IsCompleted)
                 {
@@ -42,7 +44,6 @@ public sealed class StreamWorker(
                     if (proc.LastProgressAt is { } progressAt)
                     {
                         state.LastProgressAt = progressAt; // keep the last real progress across restarts
-                        attempt = 0; // every generation that delivered video restarts the backoff
                         if (state.Status != StreamStatus.Online) store.SetStatus(state, StreamStatus.Online, now);
                     }
 
@@ -50,10 +51,20 @@ public sealed class StreamWorker(
                     {
                         logger.LogWarning("Stream {Stream}: no video for {Seconds}s, restarting ffmpeg", spec.Key, StallTimeout.TotalSeconds);
                         proc.Kill();
+                        stalled = true;
                         break;
                     }
                 }
 
+                var lived = clock.GetUtcNow() - startedAt;
+                if (!stalled)
+                {
+                    logger.LogWarning("Stream {Stream}: ffmpeg exited with code {Code} after {Seconds}s (generation {Gen})",
+                        spec.Key, await proc.Exited, Math.Round(lived.TotalSeconds), state.Generation);
+                }
+
+                // Only a generation that delivered video AND stayed up restarts the backoff: a crash loop keeps backing off.
+                if (proc.LastProgressAt is not null && lived >= MinHealthyRun) attempt = 0;
                 await proc.DisposeAsync();
                 proc = null;
                 state.Restarts++;
