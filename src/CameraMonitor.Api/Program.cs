@@ -34,6 +34,9 @@ builder.Services.AddSingleton<SegmentIndexer>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<SegmentIndexer>());
 builder.Services.AddSingleton<DirectoryScanner>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<DirectoryScanner>());
+builder.Services.AddSingleton<RetentionStatus>();
+builder.Services.AddSingleton<RetentionService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<RetentionService>());
 builder.Services.AddHostedService<StreamSupervisor>();
 
 var app = builder.Build();

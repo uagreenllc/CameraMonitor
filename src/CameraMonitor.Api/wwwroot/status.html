@@ -9,6 +9,7 @@
 <body>
 <nav id="nav"></nav>
 <h1>Статус</h1>
+<div class="panel" id="disk"></div>
 <div class="scroll">
 <table>
 <thead><tr><th>Камера</th><th>Лінза</th><th>Стан</th><th>Останній кадр</th><th>Рестарти</th><th>fps</th><th>Бітрейт</th></tr></thead>
@@ -20,7 +21,14 @@
 document.getElementById('nav').innerHTML = navHtml('status.html');
 async function refresh() {
   try {
-    const { streams } = await api('/api/status');
+    const { streams, disk } = await api('/api/status');
+    const eff = disk.effectiveRetentionDays;
+    document.getElementById('disk').innerHTML =
+      '<strong>Диск та архів</strong>' +
+      `<p>Вільно: ${disk.freeGb} ГБ</p><p>Архів: ${disk.archiveGb} ГБ</p>` +
+      `<p>Найстаріший запис: ${fmtTime(disk.oldestSegmentUtc)}</p>` +
+      `<p class="${eff != null && eff < disk.minRetentionDays ? 'warn' : ''}">Фактичне зберігання: ${eff ?? '—'} дн. (мін. ${disk.minRetentionDays})</p>` +
+      `<p>Останнє прибирання: ${fmtTime(disk.lastRunUtc)} (видалено ${disk.lastDeleted})</p>`;
     document.getElementById('rows').innerHTML = streams.map(s =>
       `<tr><td>${esc(s.camera)}</td><td>${esc(s.lens)}</td>` +
       `<td><span class="dot ${esc(s.status)}"></span> ${statusLabel(s.status)}</td>` +

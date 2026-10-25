@@ -52,6 +52,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         builder.UseSetting("Server:DataDir", _data);
         builder.UseSetting("Server:LiveDir", _data + "/live");
         builder.UseSetting("Server:CamerasFile", cameras);
+        builder.UseSetting("Server:MinFreeGb", "0"); // tests must not depend on the dev machine's free space
+        builder.UseSetting("Server:RetentionDays", "36500"); // fixed-date fixtures must not age out
         foreach (var (k, v) in _settings) builder.UseSetting(k, v);
         builder.ConfigureTestServices(services => services.Replace(ServiceDescriptor.Singleton(_ffmpeg)));
     }
