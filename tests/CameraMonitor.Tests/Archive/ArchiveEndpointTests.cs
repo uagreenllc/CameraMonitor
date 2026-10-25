@@ -101,4 +101,38 @@ public sealed class ArchiveEndpointTests
         ranges[0].GetProperty("from").GetString().Should().Be("2026-10-25T14:00:00Z");
         ranges[0].GetProperty("to").GetString().Should().Be("2026-10-25T14:00:30Z");
     }
+
+    private static async Task SeedRowAsync(ApiFactory f, string path)
+    {
+        using var scope = f.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.Segments.Add(new SegmentRow { CameraId = "a", LensId = "b", StartUtc = T, DurationMs = 10000, Bytes = 1, Path = path });
+        await db.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task Export_aborts_when_ffmpeg_cannot_run()
+    {
+        using var f = new ApiFactory().WithSetting("Server:FfmpegPath", "no-such-ffmpeg-binary");
+        var c = f.CreateClient();
+        Directory.CreateDirectory($"{f.DataDir}/rec/a/b/20261025/14");
+        File.WriteAllBytes($"{f.DataDir}/rec/a/b/20261025/14/140000.ts", [1]);
+        await SeedRowAsync(f, "rec/a/b/20261025/14/140000.ts");
+        var act = async () =>
+        {
+            var r = await c.GetAsync($"/api/export?cam=a&lens=b&from={Iso(T)}&to={Iso(T.AddSeconds(10))}");
+            return r.IsSuccessStatusCode ? await r.Content.ReadAsByteArrayAsync() : throw new HttpRequestException("status");
+        };
+        await act.Should().ThrowAsync<Exception>();
+    }
+
+    [Fact]
+    public async Task Export_ignores_paths_outside_rec_root()
+    {
+        using var f = new ApiFactory();
+        var c = f.CreateClient();
+        await SeedRowAsync(f, "../../etc/passwd");
+        var r = await c.GetAsync($"/api/export?cam=a&lens=b&from={Iso(T)}&to={Iso(T.AddSeconds(10))}");
+        r.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
 }

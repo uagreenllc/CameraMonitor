@@ -86,11 +86,38 @@ public static partial class ArchiveEndpoints
         {
             if (ParseRange(cam, lens, from, to, ExportService.MaxRange, out var f, out var t) is { } bad) return bad;
             var rows = await OverlappingAsync(db, cam, lens, f, t, server.Value.SegmentSeconds, ct);
-            var paths = rows.Select(r => Path.GetFullPath(Path.Combine(server.Value.DataDir, r.Path))).Where(File.Exists).ToList();
+            var root = Path.GetFullPath(Path.Combine(server.Value.DataDir, "rec")) + Path.DirectorySeparatorChar;
+            var log = http.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("Export");
+            var paths = new List<string>();
+            foreach (var r in rows)
+            {
+                var full = Path.GetFullPath(Path.Combine(server.Value.DataDir, r.Path));
+                if (!full.StartsWith(root, StringComparison.Ordinal))
+                {
+                    log.LogWarning("Export skipped segment {Id} outside the rec root", r.Id);
+                    continue;
+                }
+                // a segment deleted by retention mid-range is skipped: concat then has a gap by design
+                if (!File.Exists(full)) { log.LogDebug("Export skipped missing segment {Path}", r.Path); continue; }
+                paths.Add(full);
+            }
             if (paths.Count == 0) return Results.NotFound();
             http.Response.ContentType = "video/mp4";
             http.Response.Headers.ContentDisposition = $"attachment; filename=\"{cam}-{lens}-{f:yyyyMMdd-HHmm}.mp4\"";
-            await export.WriteMp4Async(paths, http.Response.Body, ct);
+            try
+            {
+                var code = await export.WriteMp4Async(paths, http.Response.Body, ct);
+                if (code != 0)
+                {
+                    log.LogWarning("Export {Cam}/{Lens} {From:o}..{To:o} failed with ffmpeg exit code {Code}; aborting response", cam, lens, f, t, code);
+                    http.Abort();
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                log.LogWarning(ex, "Export {Cam}/{Lens} {From:o}..{To:o} failed; aborting response", cam, lens, f, t);
+                http.Abort();
+            }
             return Results.Empty;
         });
         return app;

@@ -33,6 +33,15 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         return this;
     }
 
+    private readonly Dictionary<string, string> _settings = [];
+
+    /// <summary>Sets an extra host setting (e.g. Server:FfmpegPath). Call before CreateClient().</summary>
+    public ApiFactory WithSetting(string key, string value)
+    {
+        _settings[key] = value;
+        return this;
+    }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         Directory.CreateDirectory(_dir);
@@ -43,6 +52,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         builder.UseSetting("Server:DataDir", _data);
         builder.UseSetting("Server:LiveDir", _data + "/live");
         builder.UseSetting("Server:CamerasFile", cameras);
+        foreach (var (k, v) in _settings) builder.UseSetting(k, v);
         builder.ConfigureTestServices(services => services.Replace(ServiceDescriptor.Singleton(_ffmpeg)));
     }
 
