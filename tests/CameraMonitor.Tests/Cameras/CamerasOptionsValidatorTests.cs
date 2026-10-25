@@ -56,4 +56,20 @@ public class CamerasOptionsValidatorTests
 
     [Fact]
     public void Unknown_vendor_fails() => Run(Cam("a", "pw", "dahua")).Failed.Should().BeTrue();
+
+    [Fact]
+    public void Empty_host_fails()
+    {
+        var cam = Cam("a", "pw");
+        cam.Host = "";
+        Run(cam).FailureMessage.Should().Contain("a: host is required");
+    }
+
+    [Fact]
+    public void Xm_channel_below_one_fails()
+    {
+        var cam = Cam("a", "pw");
+        cam.Lenses[0].Channel = 0;
+        Run(cam).FailureMessage.Should().Contain("a/fixed: channel must be >= 1");
+    }
 }

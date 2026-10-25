@@ -29,6 +29,11 @@ public sealed partial class CamerasOptionsValidator : IValidateOptions<CamerasOp
             errors.Add($"{cam.Id}: id must match ^[a-z0-9][a-z0-9-]{{0,31}}$");
         }
 
+        if (string.IsNullOrWhiteSpace(cam.Host))
+        {
+            errors.Add($"{cam.Id}: host is required");
+        }
+
         if (cam.Lenses.Count == 0)
         {
             errors.Add($"{cam.Id}: camera has no lenses");
@@ -42,6 +47,11 @@ public sealed partial class CamerasOptionsValidator : IValidateOptions<CamerasOp
         switch (cam.Vendor)
         {
             case "xm":
+                foreach (var l in cam.Lenses.Where(l => l.Channel < 1))
+                {
+                    errors.Add($"{cam.Id}/{l.Id}: channel must be >= 1");
+                }
+
                 var password = CameraPasswords.Resolve(options, cam);
                 if (password is null)
                 {
