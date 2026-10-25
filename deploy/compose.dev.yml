@@ -1,0 +1,26 @@
+# Dev-only camera simulator: rtsp://localhost:8554/cam1 and /cam2
+x-publisher: &publisher
+  image: linuxserver/ffmpeg:latest
+  restart: unless-stopped
+  depends_on: [mediamtx]
+
+services:
+  mediamtx:
+    image: bluenviron/mediamtx:1.21.3
+    ports: ["8554:8554"]
+
+  cam1:
+    <<: *publisher
+    command: >-
+      -re -stream_loop -1 -f lavfi -i testsrc2=size=1280x720:rate=15
+      -vf "drawtext=text='cam1 %{localtime}':fontsize=42:x=24:y=24:fontcolor=white:box=1:boxcolor=black@0.5"
+      -c:v libx264 -preset veryfast -tune zerolatency -g 15 -bf 0 -pix_fmt yuv420p
+      -f rtsp rtsp://mediamtx:8554/cam1
+
+  cam2:
+    <<: *publisher
+    command: >-
+      -re -stream_loop -1 -f lavfi -i testsrc2=size=1280x720:rate=15
+      -vf "drawtext=text='cam2 %{localtime}':fontsize=42:x=24:y=24:fontcolor=white:box=1:boxcolor=black@0.5"
+      -c:v libx264 -preset veryfast -tune zerolatency -g 15 -bf 0 -pix_fmt yuv420p
+      -f rtsp rtsp://mediamtx:8554/cam2

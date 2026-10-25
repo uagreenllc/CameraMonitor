@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+[ "$SKIP_HOOKS" = "1" ] && exit 0
+git diff --cached --name-only --diff-filter=ACM | grep -q '\.cs$' || exit 0
+dotnet format CameraMonitor.sln --verify-no-changes

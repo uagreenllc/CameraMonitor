@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+[ "$SKIP_HOOKS" = "1" ] && exit 0
+set -e
+dotnet build CameraMonitor.sln -c Release
+dotnet test CameraMonitor.sln -c Release --no-build
