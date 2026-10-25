@@ -28,6 +28,7 @@ builder.Services.AddSingleton<FfmpegFactory>(sp => (args, name) => new FfmpegPro
 builder.Services.AddDbContext<AppDbContext>((sp, o) =>
     o.UseSqlite(DbSetup.ConnectionString(sp.GetRequiredService<IOptions<ServerOptions>>().Value.DataDir)));
 builder.Services.AddSingleton<TileService>();
+builder.Services.AddSingleton<ExportService>();
 builder.Services.AddSingleton<IDurationProbe, FfprobeDurationProbe>();
 builder.Services.AddSingleton<SegmentIndexer>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<SegmentIndexer>());
@@ -43,6 +44,7 @@ app.UseStaticFiles();
 app.MapHealthChecks("/health");
 app.MapCamerasEndpoints();
 app.MapLiveEndpoints();
+app.MapArchiveEndpoints();
 app.MapStatusEndpoints();
 app.Run();
 

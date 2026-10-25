@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Архів</title>
+<link rel="stylesheet" href="app.css">
+<style>
+.controls { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; align-items: end; }
+.controls label { display: flex; flex-direction: column; gap: 2px; font-size: .85rem; color: #aaa; }
+select, input { background: #1a1a1a; color: #eee; border: 1px solid #333; border-radius: 4px; padding: 6px 8px; font: inherit; }
+.timeline { position: relative; height: 40px; background: #1a1a1a; border-radius: 4px; margin: 12px 0; cursor: pointer; overflow: hidden; }
+.timeline .range { position: absolute; top: 0; bottom: 0; background: #2f6f3e; }
+.timeline .cursor { position: absolute; top: 0; bottom: 0; width: 2px; background: #f85149; pointer-events: none; display: none; }
+.hours { display: flex; justify-content: space-between; font-size: .75rem; color: #888; }
+.export { margin-top: 16px; }
+.btn { display: inline-block; padding: 8px 12px; background: #238636; color: #fff; border-radius: 4px; }
+#empty { color: #888; }
+</style>
+</head>
+<body>
+<nav id="nav"></nav>
+<h1>Архів</h1>
+<div class="controls">
+  <label>Камера <select id="lens"></select></label>
+  <label>Дата <input type="date" id="date"></label>
+  <label>Швидкість
+    <select id="speed"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option></select>
+  </label>
+</div>
+<video id="v" controls playsinline></video>
+<div class="timeline" id="tl"><div class="cursor" id="cur"></div></div>
+<div class="hours"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>
+<p id="empty" hidden>Нема записів за цей день</p>
+<div class="export controls">
+  <label>Від <input type="datetime-local" id="xf"></label>
+  <label>До <input type="datetime-local" id="xt"></label>
+  <a class="btn" id="xl" download>Експорт MP4</a>
+</div>
+<script src="vendor/hls.min.js"></script>
+<script src="app.js"></script>
+<script>
+document.getElementById('nav').innerHTML = navHtml('archive.html');
+const $ = id => document.getElementById(id);
+const video = $('v'), tl = $('tl'), cur = $('cur'), DAY = 86400000;
+let dayStart = 0, playFrom = null, hls = null;
+
+const pad = n => String(n).padStart(2, '0');
+const localInput = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+const pick = () => { const [cam, lens] = $('lens').value.split('/'); return { cam, lens }; };
+
+function updateExport() {
+  const { cam, lens } = pick();
+  const f = new Date($('xf').value), t = new Date($('xt').value);
+  if (!cam || isNaN(f) || isNaN(t)) { $('xl').removeAttribute('href'); return; }
+  $('xl').href = `/api/export?cam=${encodeURIComponent(cam)}&lens=${encodeURIComponent(lens)}&from=${encodeURIComponent(f.toISOString())}&to=${encodeURIComponent(t.toISOString())}`;
+}
+
+async function loadTimeline() {
+  tl.querySelectorAll('.range').forEach(e => e.remove());
+  const { cam, lens } = pick();
+  if (!cam) return;
+  // the API takes UTC days; a local day spans two of them, so fetch both and concatenate
+  dayStart = new Date($('date').value + 'T00:00').getTime();
+  const days = [...new Set([dayStart, dayStart + DAY - 1].map(t => new Date(t).toISOString().slice(0, 10)))];
+  const data = { ranges: (await Promise.all(days.map(d =>
+    api(`/api/timeline?cam=${encodeURIComponent(cam)}&lens=${encodeURIComponent(lens)}&day=${d}`)))).flatMap(x => x.ranges) };
+  $('empty').hidden = data.ranges.length > 0;
+  for (const r of data.ranges) {
+    const f = new Date(r.from).getTime(), t = new Date(r.to).getTime();
+    const el = document.createElement('div');
+    el.className = 'range';
+    el.style.left = ((f - dayStart) / DAY * 100) + '%';
+    el.style.width = Math.max((t - f) / DAY * 100, 0.1) + '%';
+    el.title = `${new Date(f).toLocaleTimeString('uk-UA')} – ${new Date(t).toLocaleTimeString('uk-UA')}`;
+    tl.insertBefore(el, cur);
+  }
+}
+
+function play(from) {
+  const { cam, lens } = pick();
+  playFrom = from;
+  const to = new Date(from.getTime() + 3600000);
+  const src = `/archive/${encodeURIComponent(cam)}/${encodeURIComponent(lens)}.m3u8?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`;
+  if (hls) { hls.destroy(); hls = null; }
+  if (window.Hls && Hls.isSupported()) {
+    hls = new Hls();
+    hls.loadSource(src);
+    hls.attachMedia(video);
+    hls.on(Hls.Events.MANIFEST_PARSED, () => { video.playbackRate = +$('speed').value; video.play().catch(() => {}); });
+  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+    video.src = src;
+    video.play().catch(() => {});
+  }
+  $('xf').value = localInput(from);
+  $('xt').value = localInput(new Date(from.getTime() + 600000));
+  updateExport();
+}
+
+tl.addEventListener('click', e => {
+  const r = tl.getBoundingClientRect();
+  play(new Date(dayStart + (e.clientX - r.left) / r.width * DAY));
+});
+video.addEventListener('timeupdate', () => {
+  if (!playFrom) return;
+  cur.style.display = 'block';
+  cur.style.left = ((playFrom.getTime() + video.currentTime * 1000 - dayStart) / DAY * 100) + '%';
+});
+$('speed').addEventListener('change', () => { video.playbackRate = +$('speed').value; });
+$('lens').addEventListener('change', loadTimeline);
+$('date').addEventListener('change', loadTimeline);
+$('xf').addEventListener('change', updateExport);
+$('xt').addEventListener('change', updateExport);
+
+(async () => {
+  $('date').value = today();
+  const cams = await api('/api/cameras');
+  const q = new URLSearchParams(location.search);
+  const sel = $('lens');
+  for (const c of cams) for (const l of c.lenses) {
+    const o = document.createElement('option');
+    o.value = `${c.id}/${l.id}`;
+    o.textContent = `${c.name} · ${l.id}`;
+    sel.appendChild(o);
+  }
+  const want = `${q.get('cam')}/${q.get('lens')}`;
+  if ([...sel.options].some(o => o.value === want)) sel.value = want;
+  loadTimeline();
+})();
+</script>
+</body>
+</html>
