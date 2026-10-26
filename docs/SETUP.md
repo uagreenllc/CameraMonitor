@@ -47,7 +47,13 @@ sudo chown 1654:1654 deploy/secrets/cam_password && sudo chmod 600 deploy/secret
 - `Items[].DvripPort` — порт DVRIP (за замовчуванням `34567`).
 - `Items[].Lenses[]` — об'єктиви/канали: `Id`, `Channel` (номер каналу), `Ptz: true` для поворотного, `XmChannel` — номер каналу в DVRIP, якщо він не дорівнює `Channel - 1`.
 
-При запуску з `dotnet run` (розробка) конфіг камер лежить у `deploy/cameras.dev.json` (див. `appsettings.Development.json`), а файл із паролем задає `Cameras:DefaultPasswordFile`. Файли з реальними IP і паролями у git не комітяться (`deploy/config/` в `.gitignore`).
+`deploy/cameras.dev.json` — лише конфіг імітаторів для `dotnet run` (він у git). Реальну камеру при запуску з `dotnet run` кладіть у git-ігнорований `deploy/config/cameras.json`, а в ньому `Cameras:DefaultPasswordFile` задайте абсолютним шляхом до `deploy/secrets/cam_password` (`deploy/secrets/` теж у `.gitignore`). Запуск:
+
+```powershell
+$env:Server__CamerasFile='../../deploy/config/cameras.json'; dotnet run --project src/CameraMonitor.Api
+```
+
+Реальні IP і паролі у git не комітяться.
 
 Пароль камер лежить лише у `deploy/secrets/cam_password`; у git і в образ він не потрапляє.
 
