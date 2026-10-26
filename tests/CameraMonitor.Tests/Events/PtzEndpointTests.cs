@@ -39,7 +39,7 @@ public sealed class PtzEndpointTests : IAsyncLifetime
     {
         _factory = _factory.WithCameras(Cams(_fake.Port));
         var http = _factory.CreateClient();
-        await Until(() => _fake.Logins == 1);
+        await Until(() => _fake.Logins >= 1);   // SdBackfill opens a second (download) session on connect
         return http;
     }
 

@@ -11,6 +11,7 @@
 <h1>Статус</h1>
 <div class="panel" id="disk"></div>
 <div class="panel" id="cameras"></div>
+<div class="panel" id="backfill"></div>
 <div class="scroll">
 <table>
 <thead><tr><th>Камера</th><th>Лінза</th><th>Стан</th><th>Останній кадр</th><th>Рестарти</th><th>fps</th><th>Бітрейт</th></tr></thead>
@@ -22,7 +23,7 @@
 document.getElementById('nav').innerHTML = navHtml('status.html');
 async function refresh() {
   try {
-    const { streams, disk, cameras } = await api('/api/status');
+    const { streams, disk, cameras, backfill } = await api('/api/status');
     const eff = disk.effectiveRetentionDays;
     document.getElementById('disk').innerHTML =
       '<strong>Диск та архів</strong>' +
@@ -36,6 +37,11 @@ async function refresh() {
       `; зсув годинника: ${c.clockDriftSeconds != null ? Math.round(c.clockDriftSeconds) : '—'} с` +
       `; GOP: ${c.gop != null ? c.gop + ' с' : '—'}; перепідключень: ${c.reconnects}` +
       `; остання тривога: ${fmtTime(c.lastAlarmAt)}</p>`).join('') : '<p>—</p>');
+    document.getElementById('backfill').innerHTML = '<strong>Довантаження з microSD</strong>' + (backfill.length ? backfill.map(b =>
+      `<p>${esc(b.camera)}: черга: ${b.queued}` + (b.current ? `; зараз: ${esc(b.current)}` : '') +
+      `; файлів: ${b.filesDone}, сегментів: ${b.segmentsAdded}, без записів: ${b.gapsNoFiles}` +
+      `; останній запуск: ${fmtTime(b.lastRunUtc)}</p>` +
+      (b.lastError ? `<p class="warn">${esc(b.lastError)}</p>` : '')).join('') : '<p>—</p>');
     document.getElementById('rows').innerHTML = streams.map(s =>
       `<tr><td>${esc(s.camera)}</td><td>${esc(s.lens)}</td>` +
       `<td><span class="dot ${esc(s.status)}"></span> ${statusLabel(s.status)}</td>` +

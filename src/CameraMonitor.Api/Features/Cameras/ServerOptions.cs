@@ -23,4 +23,10 @@ public sealed class ServerOptions
 
     /// <summary>This server's LAN IP as the cameras must reach it; written into the cameras' NetWork.AlarmServer.</summary>
     public string? XmAlarmServerHost { get; set; }
+
+    /// <summary>How far back the microSD backfill looks for archive gaps (about what the card holds).</summary>
+    public int SdLoopDays { get; set; } = 3;
+
+    /// <summary>Archive holes shorter than this are not backfilled.</summary>
+    public int SdMinGapSeconds { get; set; } = 120;
 }

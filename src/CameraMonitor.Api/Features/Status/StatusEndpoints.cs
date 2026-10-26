@@ -1,4 +1,5 @@
 using CameraMonitor.Api.Features.Archive;
+using CameraMonitor.Api.Features.Backfill;
 using CameraMonitor.Api.Features.Cameras;
 using CameraMonitor.Api.Features.Events;
 using CameraMonitor.Api.Features.Streams;
@@ -10,7 +11,7 @@ public static class StatusEndpoints
 {
     public static IEndpointRouteBuilder MapStatusEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/status", (StreamStateStore store, XmAgentStore agents, RetentionStatus disk, IOptions<ServerOptions> server, TimeProvider clock) => new
+        app.MapGet("/api/status", (StreamStateStore store, XmAgentStore agents, RetentionStatus disk, BackfillStatus backfill, IOptions<ServerOptions> server, TimeProvider clock) => new
         {
             Streams = store.All().OrderBy(s => s.Key.CameraId).ThenBy(s => s.Key.LensId).Select(s => new
             {
@@ -44,6 +45,17 @@ public static class StatusEndpoints
                 disk.LastRunUtc,
                 disk.LastDeleted,
             },
+            Backfill = backfill.All().Select(b => new
+            {
+                Camera = b.CameraId,
+                b.Queued,
+                b.Current,
+                b.FilesDone,
+                b.SegmentsAdded,
+                b.GapsNoFiles,
+                b.LastError,
+                b.LastRunUtc,
+            }),
         });
         return app;
     }

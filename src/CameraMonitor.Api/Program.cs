@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using CameraMonitor.Api.Features.Archive;
+using CameraMonitor.Api.Features.Backfill;
 using CameraMonitor.Api.Features.Cameras;
 using CameraMonitor.Api.Features.Events;
 using CameraMonitor.Api.Features.Status;
@@ -46,6 +47,10 @@ builder.Services.AddHostedService<StreamSupervisor>();
 builder.Services.AddSingleton<XmAgentStore>();
 builder.Services.AddHostedService<XmAgentSupervisor>();
 builder.Services.AddHostedService<XmAlarmServer>();
+builder.Services.AddSingleton<BackfillStatus>();
+builder.Services.AddSingleton<SdRemuxer>();
+builder.Services.AddSingleton<SdBackfill>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<SdBackfill>());
 
 var app = builder.Build();
 await DbSetup.MigrateAsync(app.Services, CancellationToken.None);
