@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using CameraMonitor.Api.Features.Archive;
 using CameraMonitor.Api.Features.Cameras;
+using CameraMonitor.Api.Features.Events;
 using CameraMonitor.Api.Features.Status;
 using CameraMonitor.Api.Features.Streams;
 using CameraMonitor.Api.Infrastructure.Db;
@@ -42,6 +43,8 @@ builder.Services.AddSingleton<RetentionStatus>();
 builder.Services.AddSingleton<RetentionService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<RetentionService>());
 builder.Services.AddHostedService<StreamSupervisor>();
+builder.Services.AddSingleton<XmAgentStore>();
+builder.Services.AddHostedService<XmAgentSupervisor>();
 
 var app = builder.Build();
 await DbSetup.MigrateAsync(app.Services, CancellationToken.None);
@@ -49,7 +52,8 @@ await DbSetup.MigrateAsync(app.Services, CancellationToken.None);
 app.UseSerilogRequestLogging(o => o.GetLevel = (ctx, _, ex) =>
     ex != null || ctx.Response.StatusCode >= 500 ? LogEventLevel.Error
     : ctx.Response.StatusCode >= 400 ? LogEventLevel.Warning
-    : ctx.Request.Path.StartsWithSegments("/api/tile") || ctx.Request.Path.StartsWithSegments("/live") || ctx.Request.Path.StartsWithSegments("/seg") ? LogEventLevel.Debug
+    : ctx.Request.Path.StartsWithSegments("/api/tile") || ctx.Request.Path.StartsWithSegments("/live") || ctx.Request.Path.StartsWithSegments("/seg")
+        || ctx.Request.Path.StartsWithSegments("/events") || ctx.Request.Path.StartsWithSegments("/api/snapshot") ? LogEventLevel.Debug
     : LogEventLevel.Information);
 app.UseDefaultFiles();
 app.UseStaticFiles();

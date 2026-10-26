@@ -10,6 +10,7 @@
 <nav id="nav"></nav>
 <h1>Статус</h1>
 <div class="panel" id="disk"></div>
+<div class="panel" id="cameras"></div>
 <div class="scroll">
 <table>
 <thead><tr><th>Камера</th><th>Лінза</th><th>Стан</th><th>Останній кадр</th><th>Рестарти</th><th>fps</th><th>Бітрейт</th></tr></thead>
@@ -21,7 +22,7 @@
 document.getElementById('nav').innerHTML = navHtml('status.html');
 async function refresh() {
   try {
-    const { streams, disk } = await api('/api/status');
+    const { streams, disk, cameras } = await api('/api/status');
     const eff = disk.effectiveRetentionDays;
     document.getElementById('disk').innerHTML =
       '<strong>Диск та архів</strong>' +
@@ -29,6 +30,12 @@ async function refresh() {
       `<p>Найстаріший запис: ${fmtTime(disk.oldestSegmentUtc)}</p>` +
       `<p class="${eff != null && eff < disk.minRetentionDays ? 'warn' : ''}">Фактичне зберігання: ${eff ?? '—'} дн. (мін. ${disk.minRetentionDays})</p>` +
       `<p>Останнє прибирання: ${fmtTime(disk.lastRunUtc)} (видалено ${disk.lastDeleted})</p>`;
+    document.getElementById('cameras').innerHTML = '<strong>Камери (DVRIP)</strong>' + (cameras.length ? cameras.map(c =>
+      `<p><span class="dot ${c.connected ? 'online' : 'offline'}"></span> ${esc(c.camera)}: ` +
+      (c.connected ? `підключено з ${fmtTime(c.connectedSince)}` : `не підключено: ${esc(c.lastError ?? '—')}`) +
+      `; зсув годинника: ${c.clockDriftSeconds != null ? Math.round(c.clockDriftSeconds) : '—'} с` +
+      `; GOP: ${c.gop != null ? c.gop + ' с' : '—'}; перепідключень: ${c.reconnects}` +
+      `; остання тривога: ${fmtTime(c.lastAlarmAt)}</p>`).join('') : '<p>—</p>');
     document.getElementById('rows').innerHTML = streams.map(s =>
       `<tr><td>${esc(s.camera)}</td><td>${esc(s.lens)}</td>` +
       `<td><span class="dot ${esc(s.status)}"></span> ${statusLabel(s.status)}</td>` +

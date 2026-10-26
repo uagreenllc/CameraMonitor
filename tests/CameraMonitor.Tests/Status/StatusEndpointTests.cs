@@ -17,4 +17,14 @@ public sealed class StatusEndpointTests
             disk.TryGetProperty(k, out _).Should().BeTrue(k);
         disk.GetProperty("effectiveRetentionDays").ValueKind.Should().Be(JsonValueKind.Null);
     }
+
+    [Fact]
+    public async Task Status_has_cameras_block()
+    {
+        using var factory = new ApiFactory();
+        var json = await factory.CreateClient().GetFromJsonAsync<JsonElement>("/api/status");
+
+        json.GetProperty("cameras").ValueKind.Should().Be(JsonValueKind.Array);
+        json.GetProperty("cameras").GetArrayLength().Should().Be(0);
+    }
 }

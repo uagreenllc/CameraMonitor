@@ -128,6 +128,17 @@ public sealed class DvripClientTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task GetConfig_rejects_a_reply_for_another_section()
+    {
+        _fake.Configs["Detect"] = JsonNode.Parse("""{"MotionDetect":[{"Enable":false}]}""")!;
+        _fake.ConfigReplyName = "General";
+        var c = await ConnectedClient();
+
+        (await c.Invoking(x => x.GetConfigAsync("Detect", CancellationToken.None)).Should().ThrowAsync<DvripException>())
+            .Which.Message.Should().StartWith("stale reply");
+    }
+
+    [Fact]
     public async Task GetTime_and_SetTime_round_trip()
     {
         var c = await ConnectedClient();

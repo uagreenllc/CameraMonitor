@@ -19,6 +19,7 @@ public sealed class CameraConfig
 
     /// <summary>"xm" or "rtsp".</summary>
     public string Vendor { get; set; } = "xm";
+    public int DvripPort { get; set; } = 34567;
     public List<LensConfig> Lenses { get; set; } = [];
 }
 
@@ -28,4 +29,10 @@ public sealed class LensConfig
     public int Channel { get; set; } = 1;
     public bool Ptz { get; set; }
     public string? RtspUrl { get; set; }
+
+    /// <summary>0-based DVRIP channel override.</summary>
+    public int? XmChannel { get; set; }
+
+    // ponytail: 0-based DVRIP channel = RTSP channel - 1 until the real camera says otherwise
+    public int DvripChannel => XmChannel ?? Channel - 1;
 }

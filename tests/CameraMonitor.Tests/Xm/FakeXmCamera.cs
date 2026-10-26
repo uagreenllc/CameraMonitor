@@ -36,6 +36,9 @@ public sealed class FakeXmCamera : IAsyncDisposable
     public int DownloadChunk { get; set; } = 4096;
     public HashSet<ushort> Ignore { get; } = [];
 
+    /// <summary>When set, ConfigGet replies carry this Name (a late reply to an earlier request).</summary>
+    public string? ConfigReplyName { get; set; }
+
     /// <summary>Runs after a request is received and before it is answered (e.g. to interleave an alarm push).</summary>
     public Func<ushort, Task>? BeforeReply { get; set; }
 
@@ -222,7 +225,7 @@ public sealed class FakeXmCamera : IAsyncDisposable
                     return;
                 }
 
-                await ReplyAsync(conn, id, Ok(name, payload: config.DeepClone()));
+                await ReplyAsync(conn, id, Ok(ConfigReplyName ?? name, payload: config.DeepClone()));
                 return;
             case DvripMessages.ConfigSet:
                 Configs[name] = req[name]!.DeepClone();

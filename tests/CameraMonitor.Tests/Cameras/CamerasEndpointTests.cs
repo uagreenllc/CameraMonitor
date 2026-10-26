@@ -33,4 +33,25 @@ public class CamerasEndpointTests
         lens[1].GetProperty("ptz").GetBoolean().Should().BeTrue();
         lens[0].GetProperty("status").GetString().Should().BeOneOf("starting", "online", "offline");
     }
+
+    [Fact]
+    public async Task Cameras_report_dvrip_flag()
+    {
+        var cams = new CamerasOptions
+        {
+            Items =
+            [
+                new CameraConfig { Id = "a", Name = "A", Host = "h1", Lenses = [new() { Id = "main", Channel = 1 }] },
+                new CameraConfig { Id = "r", Name = "R", Host = "h2", Vendor = "rtsp", Lenses = [new() { Id = "main", RtspUrl = "rtsp://h2/x" }] },
+            ],
+        };
+        using var factory = new ApiFactory().WithCameras(cams);
+
+        var json = JsonDocument.Parse(await factory.CreateClient().GetStringAsync("/api/cameras")).RootElement;
+
+        foreach (var cam in json.EnumerateArray())
+        {
+            cam.GetProperty("dvrip").GetBoolean().Should().BeFalse();
+        }
+    }
 }

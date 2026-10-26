@@ -1,5 +1,6 @@
 using CameraMonitor.Api.Features.Archive;
 using CameraMonitor.Api.Features.Cameras;
+using CameraMonitor.Api.Features.Events;
 using CameraMonitor.Api.Features.Streams;
 using Microsoft.Extensions.Options;
 
@@ -9,7 +10,7 @@ public static class StatusEndpoints
 {
     public static IEndpointRouteBuilder MapStatusEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/status", (StreamStateStore store, RetentionStatus disk, IOptions<ServerOptions> server, TimeProvider clock) => new
+        app.MapGet("/api/status", (StreamStateStore store, XmAgentStore agents, RetentionStatus disk, IOptions<ServerOptions> server, TimeProvider clock) => new
         {
             Streams = store.All().OrderBy(s => s.Key.CameraId).ThenBy(s => s.Key.LensId).Select(s => new
             {
@@ -21,6 +22,17 @@ public static class StatusEndpoints
                 s.Generation,
                 s.Fps,
                 s.Bitrate,
+            }),
+            Cameras = agents.All().OrderBy(a => a.CameraId).Select(a => new
+            {
+                Camera = a.CameraId,
+                a.Connected,
+                a.ConnectedSince,
+                a.LastError,
+                a.LastAlarmAt,
+                a.ClockDriftSeconds,
+                a.Reconnects,
+                a.Gop,
             }),
             Disk = new
             {

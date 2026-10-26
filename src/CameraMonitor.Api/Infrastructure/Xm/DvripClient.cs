@@ -106,8 +106,14 @@ public sealed class DvripClient(string host, int port, string user, string passw
     public Task GuardAsync(CancellationToken ct) =>
         RequestAsync(DvripMessages.Guard, new JsonObject { ["Name"] = "" }, ct);
 
-    public async Task<JsonNode?> GetConfigAsync(string name, CancellationToken ct) =>
-        (await RequestAsync(DvripMessages.ConfigGet, new JsonObject { ["Name"] = name }, ct))[name]?.DeepClone();
+    /// <summary>A reply naming another section is a late answer to an earlier, timed-out request: never hand it back as this one.</summary>
+    public async Task<JsonNode?> GetConfigAsync(string name, CancellationToken ct)
+    {
+        var reply = await RequestAsync(DvripMessages.ConfigGet, new JsonObject { ["Name"] = name }, ct);
+        return reply["Name"] is JsonValue v && v.TryGetValue<string>(out var got) && got != name
+            ? throw new DvripException(-1, $"stale reply: asked for {name}, got {got}")
+            : reply[name]?.DeepClone();
+    }
 
     public Task SetConfigAsync(string name, JsonNode value, CancellationToken ct) =>
         RequestAsync(DvripMessages.ConfigSet, new JsonObject { ["Name"] = name, [name] = value.DeepClone() }, ct);

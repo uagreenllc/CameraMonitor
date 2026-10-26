@@ -17,6 +17,40 @@ namespace CameraMonitor.Api.Infrastructure.Db.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.21");
 
+            modelBuilder.Entity("CameraMonitor.Api.Infrastructure.Db.EventRow", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CameraId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("EndedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LensId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SnapshotPath")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("StartedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CameraId", "StartedUtc");
+
+                    b.ToTable("Events");
+                });
+
             modelBuilder.Entity("CameraMonitor.Api.Infrastructure.Db.SegmentRow", b =>
                 {
                     b.Property<long>("Id")
