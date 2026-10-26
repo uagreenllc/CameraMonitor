@@ -33,10 +33,12 @@ async function refresh() {
       `<p>Останнє прибирання: ${fmtTime(disk.lastRunUtc)} (видалено ${disk.lastDeleted})</p>`;
     document.getElementById('cameras').innerHTML = '<strong>Камери (DVRIP)</strong>' + (cameras.length ? cameras.map(c =>
       `<p><span class="dot ${c.connected ? 'online' : 'offline'}"></span> ${esc(c.camera)}: ` +
-      (c.connected ? `підключено з ${fmtTime(c.connectedSince)}` : `не підключено: ${esc(c.lastError ?? '—')}`) +
+      (c.connected ? `підключено з ${fmtTime(c.connectedSince)}` : 'не підключено') +
       `; зсув годинника: ${c.clockDriftSeconds != null ? Math.round(c.clockDriftSeconds) : '—'} с` +
       `; GOP: ${c.gop != null ? c.gop + ' с' : '—'}; перепідключень: ${c.reconnects}` +
-      `; остання тривога: ${fmtTime(c.lastAlarmAt)}</p>`).join('') : '<p>—</p>');
+      `; остання тривога: ${fmtTime(c.lastAlarmAt)}</p>` +
+      // also when connected: a failed Guard means alarms are off on a live session
+      (c.lastError ? `<p class="warn">${esc(c.lastError)}</p>` : '')).join('') : '<p>—</p>');
     document.getElementById('backfill').innerHTML = '<strong>Довантаження з microSD</strong>' + (backfill.length ? backfill.map(b =>
       `<p>${esc(b.camera)}: черга: ${b.queued}` + (b.current ? `; зараз: ${esc(b.current)}` : '') +
       `; файлів: ${b.filesDone}, сегментів: ${b.segmentsAdded}, без записів: ${b.gapsNoFiles}` +
