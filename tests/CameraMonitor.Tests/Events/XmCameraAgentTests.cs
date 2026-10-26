@@ -23,6 +23,7 @@ public sealed class XmCameraAgentTests : IAsyncLifetime
     private readonly CancellationTokenSource _cts = new();
     private Task _run = Task.CompletedTask;
     private CameraConfig _cam = null!;
+    private XmCameraAgent _agent = null!;
 
     public async Task InitializeAsync()
     {
@@ -53,7 +54,7 @@ public sealed class XmCameraAgentTests : IAsyncLifetime
 
     private async Task<XmAgentState> StartConnected()
     {
-        var agent = NewAgent();
+        var agent = _agent = NewAgent();
         _run = Task.Run(() => agent.RunAsync(_cts.Token));
         var state = _agents.GetOrAdd("c1");
         await Until(() => state.Connected);
@@ -152,6 +153,8 @@ public sealed class XmCameraAgentTests : IAsyncLifetime
     [InlineData("VideoMotion", "motion")]
     [InlineData("AppEventHumanDetectAlarm", "human")]
     [InlineData("VideoLoss", "videoloss")]
+    [InlineData("../Foo:Bar", "foobar")]
+    [InlineData("../:\\", "event")]
     public void MapEvent_maps_known_names(string xm, string expected) =>
         XmCameraAgent.MapEvent(xm).Should().Be(expected);
 
@@ -178,6 +181,59 @@ public sealed class XmCameraAgentTests : IAsyncLifetime
         await _fake.PushAlarmAsync(1, "HumanDetect", "Stop");
         await Until(async () => (await Events()).Single().EndedUtc is not null);
         (await Events()).Single().EndedUtc.Should().Be(Now.AddSeconds(3));
+    }
+
+    [Fact]
+    public async Task Alarm_start_still_creates_event_when_snapshot_cannot_be_written()
+    {
+        var blocker = Path.Combine(_factory.DataDir, "events", "c1");   // a file where the directory must go
+        await StartConnected();
+        Directory.CreateDirectory(Path.GetDirectoryName(blocker)!);
+        await File.WriteAllTextAsync(blocker, "");
+
+        await _fake.PushAlarmAsync(1, "HumanDetect", "Start");
+        await Until(async () => (await Events()).Count == 1);
+
+        var row = (await Events()).Single();
+        row.LensId.Should().Be("ptz");
+        row.SnapshotPath.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Reconnect_cleanup_waits_for_an_alarm_handler_in_flight()
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var snapshotAsked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _fake.BeforeReply = id =>
+        {
+            if (id != DvripMessages.Snapshot)
+            {
+                return Task.CompletedTask;
+            }
+
+            snapshotAsked.TrySetResult();
+            return release.Task;
+        };
+        await StartConnected();
+
+        await _fake.PushAlarmAsync(1, "HumanDetect", "Start");
+        await snapshotAsked.Task.WaitAsync(TimeSpan.FromSeconds(5));   // the handler is grabbing its snapshot
+        var cleanup = _agent.CloseOpenEventsAsync(CancellationToken.None);
+        bool waited;
+        try
+        {
+            await Task.Delay(100);
+            waited = !cleanup.IsCompleted;
+        }
+        finally
+        {
+            release.SetResult();   // never leave the fake's connection blocked, or disposal hangs
+        }
+
+        waited.Should().BeTrue("the cleanup must wait for the in-flight alarm handler");
+        await cleanup.WaitAsync(TimeSpan.FromSeconds(5));
+
+        (await Events()).Should().ContainSingle().Which.EndedUtc.Should().NotBeNull("the handler's row was inserted before the cleanup closed it");
     }
 
     [Fact]

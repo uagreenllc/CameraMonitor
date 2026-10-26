@@ -153,9 +153,17 @@ public sealed class XmCameraAgent(
                     if (jpeg is not null)
                     {
                         path = $"events/{cam.Id}/{now:yyyyMMdd}/{now:HHmmss}-{lens}-{type}.jpg";
-                        var file = Path.Combine(server.Value.DataDir, path);
-                        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-                        await File.WriteAllBytesAsync(file, jpeg, ct);
+                        try
+                        {
+                            var file = Path.Combine(server.Value.DataDir, path);
+                            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+                            await File.WriteAllBytesAsync(file, jpeg, ct);
+                        }
+                        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                        {
+                            logger.LogWarning("DVRIP {Camera}/{Lens}: event snapshot not saved: {Error}", cam.Id, lens, e.Message);
+                            path = null;   // the event itself still counts
+                        }
                     }
 
                     db.Events.Add(new EventRow { CameraId = cam.Id, LensId = lens, Type = type, StartedUtc = now, SnapshotPath = path });
@@ -255,10 +263,44 @@ public sealed class XmCameraAgent(
         return result;
     }
 
-    public static string MapEvent(string xmEvent) =>
-        xmEvent.Contains("Human", StringComparison.Ordinal) ? "human"
-        : xmEvent.Contains("Motion", StringComparison.Ordinal) ? "motion"
-        : xmEvent.ToLowerInvariant();
+    /// <summary>The camera names the event: the result goes into a file name, so only [a-z0-9] survive.</summary>
+    public static string MapEvent(string xmEvent)
+    {
+        if (xmEvent.Contains("Human", StringComparison.Ordinal))
+        {
+            return "human";
+        }
+
+        if (xmEvent.Contains("Motion", StringComparison.Ordinal))
+        {
+            return "motion";
+        }
+
+        var safe = new string([.. xmEvent.ToLowerInvariant().Where(c => c is (>= 'a' and <= 'z') or (>= '0' and <= '9'))]);
+        return safe.Length > 0 ? safe : "event";
+    }
+
+    /// <summary>
+    /// The camera reconnected, so the previous alarm state is unknown. Holds the alarm gate: a handler of the previous
+    /// session still grabbing its snapshot must not insert an open row after this cleanup.
+    /// </summary>
+    internal async Task CloseOpenEventsAsync(CancellationToken ct)
+    {
+        await _alarmGate.WaitAsync(ct);
+        try
+        {
+            var now = clock.GetUtcNow().UtcDateTime;
+            using var scope = scopes.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var n = await db.Events.Where(e => e.CameraId == cam.Id && e.EndedUtc == null)
+                .ExecuteUpdateAsync(s => s.SetProperty(e => e.EndedUtc, now), ct);
+            logger.LogInformation("DVRIP {Camera}: closed {Count} open events after (re)connect", cam.Id, n);
+        }
+        finally
+        {
+            _alarmGate.Release();
+        }
+    }
 
     private async Task OnConnectedAsync(DvripClient client, CancellationToken ct)
     {
@@ -291,15 +333,7 @@ public sealed class XmCameraAgent(
 
         // Close stale events before alarms flow (the brief lists this after Guard): an alarm that starts right after
         // Guard must not be closed by this cleanup.
-        await StepAsync("CloseOpenEvents", async () =>
-        {
-            var now = clock.GetUtcNow().UtcDateTime;
-            using var scope = scopes.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var n = await db.Events.Where(e => e.CameraId == cam.Id && e.EndedUtc == null)
-                .ExecuteUpdateAsync(s => s.SetProperty(e => e.EndedUtc, now), ct);
-            logger.LogInformation("DVRIP {Camera}: closed {Count} open events after (re)connect", cam.Id, n);
-        }, ct);
+        await StepAsync("CloseOpenEvents", () => CloseOpenEventsAsync(ct), ct);
         await StepAsync("Guard", async () =>
         {
             client.Alarm += alarm => _ = HandleAlarmSafeAsync(alarm, ct);
