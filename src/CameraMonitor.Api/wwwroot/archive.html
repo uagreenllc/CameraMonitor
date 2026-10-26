@@ -32,6 +32,7 @@ select, input { background: #1a1a1a; color: #eee; border: 1px solid #333; border
 <video id="v" controls playsinline></video>
 <div class="timeline" id="tl"><div class="cursor" id="cur"></div></div>
 <div class="hours"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>
+<p class="legend"><span style="color:#2f6f3e">■</span> запис сервера <span style="color:#8a6d1f">■</span> з microSD камери</p>
 <p id="empty" hidden>Нема записів за цей день</p>
 <div class="export controls">
   <label>Від <input type="datetime-local" id="xf"></label>
@@ -82,10 +83,10 @@ async function loadTimeline() {
   for (const r of data.ranges) {
     const f = new Date(r.from).getTime(), t = new Date(r.to).getTime();
     const el = document.createElement('div');
-    el.className = 'range';
+    el.className = r.source === 'sd' ? 'range sd' : 'range';
     el.style.left = ((f - dayStart) / DAY * 100) + '%';
     el.style.width = Math.max((t - f) / DAY * 100, 0.1) + '%';
-    el.title = `${new Date(f).toLocaleTimeString('uk-UA')} – ${new Date(t).toLocaleTimeString('uk-UA')}`;
+    el.title = `${new Date(f).toLocaleTimeString('uk-UA')} – ${new Date(t).toLocaleTimeString('uk-UA')}` + (r.source === 'sd' ? ' (з картки)' : '');
     tl.insertBefore(el, cur);
   }
 }

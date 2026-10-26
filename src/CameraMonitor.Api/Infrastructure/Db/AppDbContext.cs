@@ -13,6 +13,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         {
             e.Property(s => s.StartUtc).HasConversion(v => v, v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
             e.HasIndex(s => new { s.CameraId, s.LensId, s.StartUtc });
+            e.Property(s => s.Source).HasDefaultValue("live");
+            e.HasIndex(s => s.StartUtc);
             e.HasIndex(s => s.Path).IsUnique();
         });
         modelBuilder.Entity<EventRow>(e =>

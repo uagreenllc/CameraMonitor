@@ -13,4 +13,7 @@ public sealed class SegmentRow
 
     public long Bytes { get; set; }
     public bool Discontinuity { get; set; }
+
+    /// <summary>"live" (recorded by the server) or "sd" (backfilled from the camera microSD).</summary>
+    public string Source { get; set; } = "live";
 }

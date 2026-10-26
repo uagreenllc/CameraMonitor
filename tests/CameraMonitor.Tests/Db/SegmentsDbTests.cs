@@ -17,6 +17,13 @@ public sealed class SegmentsDbTests
         Bytes = 1234,
     };
 
+    private static SegmentRow SdRow(DateTime start)
+    {
+        var r = Row("a", "b", start);
+        r.Source = "sd";
+        return r;
+    }
+
     [Fact]
     public async Task RoundTrip_and_range_query()
     {
@@ -43,6 +50,25 @@ public sealed class SegmentsDbTests
 
         rows.Select(r => r.StartUtc).Should().Equal(day.AddSeconds(10), day.AddSeconds(20));
         rows.Should().OnlyContain(r => r.StartUtc.Kind == DateTimeKind.Utc);
+    }
+
+    [Fact]
+    public async Task Source_defaults_to_live_and_round_trips()
+    {
+        using var factory = new ApiFactory();
+        var day = new DateTime(2026, 10, 25, 0, 0, 0, DateTimeKind.Utc);
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.Segments.AddRange(Row("a", "b", day), SdRow(day.AddSeconds(10)));
+            await db.SaveChangesAsync();
+        }
+
+        using var readScope = factory.Services.CreateScope();
+        var read = readScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var rows = await read.Segments.OrderBy(s => s.StartUtc).ToListAsync();
+
+        rows.Select(r => r.Source).Should().Equal("live", "sd");
     }
 
     [Fact]

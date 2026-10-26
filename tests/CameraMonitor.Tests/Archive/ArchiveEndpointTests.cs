@@ -105,6 +105,37 @@ public sealed class ArchiveEndpointTests
         ranges[0].GetProperty("to").GetString().Should().Be("2026-10-25T14:00:30Z");
     }
 
+    [Fact]
+    public async Task Timeline_reports_sd_ranges_separately()
+    {
+        using var f = new ApiFactory();
+        var c = f.CreateClient();
+        await SeedAsync(f, 2);
+        using (var scope = f.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var s = T.AddSeconds(20);
+            db.Segments.Add(new SegmentRow
+            {
+                CameraId = "a",
+                LensId = "b",
+                StartUtc = s,
+                DurationMs = 10000,
+                Bytes = 1,
+                Source = "sd",
+                Path = $"rec/a/b/{s:yyyyMMdd}/{s:HH}/{s:HHmmss}.ts",
+            });
+            await db.SaveChangesAsync();
+        }
+        using var doc = JsonDocument.Parse(await c.GetStringAsync("/api/timeline?cam=a&lens=b&day=2026-10-25"));
+        var ranges = doc.RootElement.GetProperty("ranges");
+        ranges.GetArrayLength().Should().Be(2);
+        ranges[0].GetProperty("source").GetString().Should().Be("live");
+        ranges[0].GetProperty("to").GetString().Should().Be("2026-10-25T14:00:20Z");
+        ranges[1].GetProperty("source").GetString().Should().Be("sd");
+        ranges[1].GetProperty("from").GetString().Should().Be("2026-10-25T14:00:20Z");
+    }
+
     private static async Task SeedRowAsync(ApiFactory f, string path)
     {
         using var scope = f.Services.CreateScope();

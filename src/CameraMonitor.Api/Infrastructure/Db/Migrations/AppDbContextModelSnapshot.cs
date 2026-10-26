@@ -78,6 +78,12 @@ namespace CameraMonitor.Api.Infrastructure.Db.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("live");
+
                     b.Property<DateTime>("StartUtc")
                         .HasColumnType("TEXT");
 
@@ -85,6 +91,8 @@ namespace CameraMonitor.Api.Infrastructure.Db.Migrations
 
                     b.HasIndex("Path")
                         .IsUnique();
+
+                    b.HasIndex("StartUtc");
 
                     b.HasIndex("CameraId", "LensId", "StartUtc");
 

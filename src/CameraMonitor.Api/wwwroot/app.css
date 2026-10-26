@@ -30,3 +30,5 @@ th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #333; }
 .ev { display: flex; gap: 12px; background: #1a1a1a; border-radius: 6px; padding: 8px; margin-bottom: 8px; color: #eee; align-items: center; }
 .ev .thumb { width: 160px; aspect-ratio: 16 / 9; background: #222; color: #888; display: flex; align-items: center; justify-content: center; flex: none; font-size: .85rem; }
 .ev img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.range.sd { background: #8a6d1f !important; }
+.legend { font-size: .85rem; color: #aaa; margin: 4px 0; }

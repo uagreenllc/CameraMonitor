@@ -77,7 +77,10 @@ public static partial class ArchiveEndpoints
             var end = d.AddDays(1);
             var rows = await db.Segments.Where(s => s.CameraId == cam && s.LensId == lens && s.StartUtc >= d && s.StartUtc < end)
                 .OrderBy(s => s.StartUtc).ToListAsync(ct);
-            var ranges = TimelineBuilder.Merge(rows, TimeSpan.FromSeconds(1.5)).Select(r => new { from = Z(r.FromUtc), to = Z(r.ToUtc) });
+            var ranges = rows.GroupBy(r => r.Source)
+                .SelectMany(g => TimelineBuilder.Merge(g, TimeSpan.FromSeconds(1.5)).Select(r => new { r.FromUtc, r.ToUtc, source = g.Key }))
+                .OrderBy(r => r.FromUtc)
+                .Select(r => new { from = Z(r.FromUtc), to = Z(r.ToUtc), r.source });
             var events = (await db.Events.Where(e => e.CameraId == cam && e.LensId == lens && e.StartedUtc >= d && e.StartedUtc < end)
                 .OrderBy(e => e.StartedUtc).ToListAsync(ct))
                 .Select(e => new { e.Type, Lens = e.LensId, from = Z(e.StartedUtc), to = e.EndedUtc is { } x ? Z(x) : null });
