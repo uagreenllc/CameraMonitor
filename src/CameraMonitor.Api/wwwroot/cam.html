@@ -57,15 +57,18 @@ api('/api/cameras').then(cams => {
   if (c && c.lenses.some(l => l.id === lens && l.ptz)) initPtz();
 }).catch(() => {});
 
-async function ptzPost(url, body) {
+// resolves true on success; quiet = do not show the error (the caller retries)
+async function ptzPost(url, body, quiet) {
   try {
     const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    if (!r.ok) {
+    if (r.ok) return true;
+    if (!quiet) {
       let d = '';
       try { d = (await r.json()).detail; } catch { }
       setStatus(d || `Помилка ${r.status}`);
     }
-  } catch { setStatus('Немає зв’язку з сервером'); }
+  } catch { if (!quiet) setStatus('Немає зв’язку з сервером'); }
+  return false;
 }
 
 function initPtz() {
@@ -82,12 +85,17 @@ function initPtz() {
     b.textContent = text;
     if (!command) { b.disabled = true; return b; }
     // one stop per press, whichever of pointerup/cancel/leave/blur arrives first
-    b.release = () => { if (active.delete(b)) ptzPost(base, { command, action: 'stop' }); };
+    // stop is sent only after the start settled (even a failed one), so they cannot be reordered; a failed stop is retried once
+    b.release = () => {
+      if (!active.delete(b)) return;
+      const stop = { command, action: 'stop' };
+      b.startP.then(async () => { if (!await ptzPost(base, stop, true)) await ptzPost(base, stop); });
+    };
     b.addEventListener('pointerdown', e => {
       e.preventDefault();
       if (active.has(b)) return;
       active.add(b);
-      ptzPost(base, { command, action: 'start' });
+      b.startP = ptzPost(base, { command, action: 'start' });
     });
     for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) b.addEventListener(ev, b.release);
     return b;
