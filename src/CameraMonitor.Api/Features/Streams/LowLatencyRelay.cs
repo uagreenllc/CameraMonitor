@@ -77,7 +77,7 @@ public sealed class LowLatencyRelay(
     // ponytail: one lock per relay
     private sealed class Relay(LowLatencyRelay owner, StreamSpec spec)
     {
-        private readonly CancellationTokenSource _cts = new();
+        private readonly CancellationTokenSource _cts = new();   // never disposed: no timer, no wait handle, so nothing to free
         private readonly List<Channel<byte[]>> _clients = [];
         private readonly List<byte[]> _gop = [];
         private byte[]? _init;
@@ -151,7 +151,7 @@ public sealed class LowLatencyRelay(
         public void Stop()
         {
             lock (this) _stopped = true;
-            try { _cts.Cancel(); } catch (ObjectDisposedException) { /* already finished */ }
+            _cts.Cancel();
         }
 
         private async Task RunAsync()
@@ -186,8 +186,6 @@ public sealed class LowLatencyRelay(
                         _idle?.Cancel();
                     }
                 }
-
-                _cts.Dispose();
             }
         }
 

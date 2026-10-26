@@ -28,6 +28,7 @@ public static class ProcessRunner
             await process.StandardOutput.BaseStream.CopyToAsync(stdout, cts.Token);
             await drain;
             await process.WaitForExitAsync(cts.Token);
+            cts.Token.ThrowIfCancellationRequested();   // killed by the registration: WaitForExitAsync returns without throwing
             return process.ExitCode;
         }
         catch
