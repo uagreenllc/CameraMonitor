@@ -76,6 +76,22 @@ public class Fmp4BoxReaderTests
         Fmp4BoxReader.CodecString(Box("ftyp", 1)).Should().BeNull();
     }
 
+    [Fact]
+    public void Buffer_capacity_returns_to_small_size_after_a_large_box()
+    {
+        var r = new Fmp4BoxReader(_ => { }, _ => { });
+        r.Feed(Cat(Box("ftyp", 1), Box("moov", 2)));
+        var small = r.Capacity;
+
+        r.Feed(Box("moof", 1));
+        r.Feed(Box("mdat", new byte[3_000_000]));
+        r.Capacity.Should().Be(small);
+
+        r.Feed(Box("moof", 1));
+        r.Feed(Box("mdat", 0, 0, 0, 2, 0x65, 0x88));
+        r.Capacity.Should().Be(small);
+    }
+
     [FfmpegFact]
     public async Task Real_ffmpeg_fmp4_is_parsed()
     {
