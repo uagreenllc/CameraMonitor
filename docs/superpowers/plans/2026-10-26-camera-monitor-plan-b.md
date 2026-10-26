@@ -22,7 +22,7 @@
 - All user-facing UI strings are Ukrainian; dark theme; pages stay plain HTML + `app.js`, no build step.
 - Time comes from the injected `TimeProvider` (`Task.Delay(ts, clock, ct)`, `task.WaitAsync(ts, clock, ct)`); wall-clock `Task.Delay` is not used in services.
 - JSON over DVRIP is handled with `System.Text.Json.Nodes` (`JsonObject`/`JsonNode`); DVRIP message bodies are camelCase-agnostic (keys exactly as python-dvr sends them, e.g. `"PassWord"`, `"DeviceType "` with the trailing space in replies).
-- Real-camera steps (M3/M4 verification on the camera on the developer's desk) are collected in Task 13; Tasks 1–12 are verified on the mediamtx simulator, `FakeXmCamera` and byte fixtures. The camera's LAN address goes into `deploy/cameras.json` / `appsettings.Development.json` and its password into `deploy/secrets/cam_password` (git-ignored); never into chat, logs or this document.
+- Real-camera steps (M3/M4 verification on the camera on the developer's desk) are collected in Task 13; Tasks 1–12 are verified on the mediamtx simulator, `FakeXmCamera` and byte fixtures. The camera's LAN address goes into the camera config file (production: `deploy/config/cameras.json`, mounted as `/app/config`; native dev run: `deploy/cameras.dev.json`, see `appsettings.Development.json`) and its password into `deploy/secrets/cam_password`; both are git-ignored and never go into chat, logs or this document.
 
 ## Review Focus
 
@@ -842,7 +842,7 @@ git commit -m "feat(web): MSE low-latency player with HLS fallback and a 24-hour
 
 - [ ] **Step 3: Real-camera verification (needs the camera on the developer's desk)**
 
-Preconditions: camera LAN address in `deploy/cameras.json` (copied from the example, `Vendor "xm"`, lenses `fixed` ch 1 / `ptz` ch 2), password in `deploy/secrets/cam_password` (or `Cameras:DefaultPasswordFile` pointing at it in `appsettings.Development.json`); run `dotnet run --project src/CameraMonitor.Api` with `Server:CamerasFile` pointing at that file. Checks, each recorded in the deferred file:
+Preconditions: the real camera added to `deploy/cameras.dev.json` for the native run (or `deploy/config/cameras.json` for the container; copy the entry from `deploy/cameras.example.json`: `Vendor "xm"`, lenses `fixed` ch 1 / `ptz` ch 2), password in `deploy/secrets/cam_password` with `Cameras:DefaultPasswordFile` pointing at it (`appsettings.Development.json` for the native run); run `dotnet run --project src/CameraMonitor.Api`. Do not commit the camera entry or the password. Checks, each recorded in the deferred file:
 1. `/status.html` «Камери (DVRIP)» shows «підключено», a clock drift, GOP 1; the log shows the `Video` block; `ffprobe -rtsp_transport tcp -show_frames -select_streams v -show_entries frame=key_frame -of csv <main rtsp url> | head -60` → a key frame every ≈ fps frames.
 2. PTZ pad on `/cam.html?cam=…&lens=ptz` moves the PTZ lens while pressed and stops within 0.5 s of release; if it keeps moving on release, swap `PtzStartPreset`/`PtzStopPreset` and re-test; if `fixed` moves instead, set `XmChannel` and record the mapping. Preset «Зберегти» 1 → move → «Перейти» 1 returns.
 3. Wave in front of each lens: an event with a thumbnail appears on `/events.html` within 5 s. If nothing within 2 min: set `Server:XmAlarmServerPort=15002`, `Server:XmAlarmServerHost=<server LAN IP>`, restart, re-test; record which path works.
