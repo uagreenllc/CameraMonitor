@@ -20,5 +20,6 @@ table { border-collapse: collapse; width: 100%; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #333; }
 .scroll { overflow-x: auto; }
 .warn { color: #f85149; }
+.status { color: #aaa; min-height: 1.4em; margin: 4px 0; }
 .panel { background: #1a1a1a; border-radius: 6px; padding: 8px 12px; margin-bottom: 16px; }
 .panel p { margin: 2px 0; }

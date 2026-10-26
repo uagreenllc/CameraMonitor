@@ -12,6 +12,7 @@
 <h1 id="title">Камера</h1>
 <p><a id="arch" href="archive.html">Архів</a></p>
 <video id="v" controls autoplay muted playsinline></video>
+<p id="st" class="status"></p>
 <script src="vendor/hls.min.js"></script>
 <script src="app.js"></script>
 <script>
@@ -21,13 +22,26 @@ const cam = q.get('cam') || '', lens = q.get('lens') || '';
 document.getElementById('arch').href = `archive.html?cam=${encodeURIComponent(cam)}&lens=${encodeURIComponent(lens)}`;
 const video = document.getElementById('v');
 const src = `/live/${encodeURIComponent(cam)}/${encodeURIComponent(lens)}/index.m3u8`;
-if (window.Hls && Hls.isSupported()) {
-  const hls = new Hls({ liveSyncDurationCount: 3, lowLatencyMode: false });
-  hls.loadSource(src);
-  hls.attachMedia(video);
-} else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-  video.src = src;
+function setStatus(t) { document.getElementById('st').textContent = t; }
+function startHls(note) {
+  if (window.Hls && Hls.isSupported()) {
+    const hls = new Hls({ liveSyncDurationCount: 3, lowLatencyMode: false });
+    hls.loadSource(src);
+    hls.attachMedia(video);
+    hls.on(Hls.Events.ERROR, (_, data) => {
+      if (!data.fatal) return;
+      setStatus('Перепідключення…');
+      if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+      else setTimeout(() => hls.startLoad(), 2000);
+    });
+    hls.on(Hls.Events.FRAG_BUFFERED, () => setStatus(note || ''));
+  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+    video.src = src;
+  } else {
+    setStatus('Браузер не підтримує HLS');
+  }
 }
+startHls();
 api('/api/cameras').then(cams => {
   const c = cams.find(x => x.id === cam);
   if (c) { document.title = document.getElementById('title').textContent = `${c.name} · ${lens}`; }
