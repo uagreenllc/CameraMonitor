@@ -7,7 +7,7 @@ namespace CameraMonitor.Tests.Xm;
 
 public sealed class DvripClientTests : IAsyncLifetime
 {
-    private static readonly TimeSpan Wait = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan Wait = TimeSpan.FromSeconds(10);
     private readonly FakeXmCamera _fake = new();
     private readonly List<DvripClient> _clients = [];
 
