@@ -5,6 +5,7 @@ services:
       dockerfile: deploy/Dockerfile
     # Host-мережа: потрібна для WS-Discovery (multicast) у Плані C; сервіс лише для LAN.
     # Вебінтерфейс: http://<сервер>:8080/
+    # XmAlarmServerPort (за потреби) відкривається лише на host-мережі — вона вже тут.
     network_mode: host
     restart: unless-stopped
     volumes:

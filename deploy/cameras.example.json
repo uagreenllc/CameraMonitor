@@ -8,6 +8,7 @@
         "Host": "192.168.50.11",
         "User": "admin",
         "Vendor": "xm",
+        "DvripPort": 34567,
         "Lenses": [
           { "Id": "fixed", "Channel": 1 },
           { "Id": "ptz", "Channel": 2, "Ptz": true }
