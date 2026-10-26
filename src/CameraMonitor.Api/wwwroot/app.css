@@ -32,3 +32,7 @@ th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #333; }
 .ev img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .range.sd { background: #8a6d1f !important; }
 .legend { font-size: .85rem; color: #aaa; margin: 4px 0; }
+.timeline { position: relative; height: 40px; background: #1a1a1a; border-radius: 4px; margin: 12px 0; cursor: pointer; overflow: hidden; }
+.timeline .range { position: absolute; top: 0; bottom: 0; background: #2f6f3e; }
+.timeline .evt { position: absolute; top: 0; bottom: 0; width: 2px; background: #f85149; }
+.hours { display: flex; justify-content: space-between; font-size: .75rem; color: #888; }

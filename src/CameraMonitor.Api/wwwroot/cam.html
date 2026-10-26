@@ -13,6 +13,9 @@
 <p><a id="arch" href="archive.html">Архів</a></p>
 <video id="v" controls autoplay muted playsinline></video>
 <p id="st" class="status"></p>
+<h2 class="legend">Останні 24 год</h2>
+<div class="timeline" id="tl"></div>
+<div class="hours"><span>−24 год</span><span>−18</span><span>−12</span><span>−6</span><span>зараз</span></div>
 <div id="ptz" class="ptz-controls" hidden>
   <div class="pad" id="pad"></div>
   <div class="presets">
@@ -32,25 +35,141 @@ document.getElementById('arch').href = `archive.html?cam=${encodeURIComponent(ca
 const video = document.getElementById('v');
 const src = `/live/${encodeURIComponent(cam)}/${encodeURIComponent(lens)}/index.m3u8`;
 function setStatus(t) { document.getElementById('st').textContent = t; }
+let hls = null, ms = null, ws = null, sb = null, objUrl = null, retryT = null;
+function stopHls() { if (hls) { hls.destroy(); hls = null; } }
+function stopMse() {
+  clearTimeout(retryT); retryT = null;
+  if (ws) { ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null; try { ws.close(); } catch { } ws = null; }
+  if (sb) { sb.onupdateend = sb.onerror = null; sb = null; }
+  if (ms) { ms.onsourceopen = null; ms = null; }
+  if (objUrl) { URL.revokeObjectURL(objUrl); objUrl = null; video.removeAttribute('src'); video.load(); }
+}
 function startHls(note) {
+  stopMse();
+  stopHls();
   if (window.Hls && Hls.isSupported()) {
-    const hls = new Hls({ liveSyncDurationCount: 3, lowLatencyMode: false });
-    hls.loadSource(src);
-    hls.attachMedia(video);
-    hls.on(Hls.Events.ERROR, (_, data) => {
+    const h = hls = new Hls({ liveSyncDurationCount: 3, lowLatencyMode: false });
+    h.loadSource(src);
+    h.attachMedia(video);
+    h.on(Hls.Events.ERROR, (_, data) => {
       if (!data.fatal) return;
       setStatus('Перепідключення…');
-      if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
-      else setTimeout(() => hls.startLoad(), 2000);
+      if (data.type === Hls.ErrorTypes.MEDIA_ERROR) h.recoverMediaError();
+      else setTimeout(() => { if (hls === h) h.startLoad(); }, 2000);
     });
-    hls.on(Hls.Events.FRAG_BUFFERED, () => setStatus(note || ''));
+    h.on(Hls.Events.FRAG_BUFFERED, () => setStatus(note || ''));
   } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
     video.src = src;
+    setStatus(note || '');
   } else {
     setStatus('Браузер не підтримує HLS');
   }
 }
-startHls();
+
+// avcC box: tag, then version(+4), profile(+5), compat(+6), level(+7)
+function codecFromInit(u8) {
+  for (let i = 0; i + 8 <= u8.length; i++) {
+    if (u8[i] === 0x61 && u8[i + 1] === 0x76 && u8[i + 2] === 0x63 && u8[i + 3] === 0x43)
+      return 'avc1.' + [5, 6, 7].map(o => u8[i + o].toString(16).padStart(2, '0')).join('');
+  }
+  return null;
+}
+
+function startMse() {
+  stopMse();
+  stopHls();
+  if (!(window.MediaSource && MediaSource.isTypeSupported('video/mp4; codecs="avc1.42E01E"'))) { startHls('HLS (резерв)'); return; }
+  const m = ms = new MediaSource();
+  objUrl = URL.createObjectURL(m);
+  video.src = objUrl;
+  const queue = [];
+  let started = false, lastTrim = 0;
+  const retry = () => {
+    if (ms !== m) return;
+    stopMse();
+    setStatus('Перепідключення…');
+    retryT = setTimeout(startMse, 3000);
+  };
+  const pump = () => { if (sb && !sb.updating && queue.length && m.readyState === 'open') { try { sb.appendBuffer(queue.shift()); } catch { retry(); } } };
+  m.onsourceopen = () => {
+    m.onsourceopen = null;
+    const w = ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host +
+      `/ws/live/${encodeURIComponent(cam)}/${encodeURIComponent(lens)}`);
+    w.binaryType = 'arraybuffer';
+    w.onmessage = e => {
+      if (ms !== m) return;
+      if (!sb) {
+        try {
+          const codec = codecFromInit(new Uint8Array(e.data)) ?? 'avc1.42E01E';
+          sb = m.addSourceBuffer('video/mp4; codecs="' + codec + '"');
+        } catch { retry(); return; }
+        sb.mode = 'sequence';
+        sb.onerror = retry; // e.g. a backlog starting mid-GOP
+        sb.onupdateend = () => {
+          const b = video.buffered;
+          const end = b.length ? b.end(b.length - 1) : 0;
+          if (end - video.currentTime > 1) video.currentTime = end - 0.3; // ponytail: ~0.3 s target buffer
+          if (b.length && end - b.start(0) > 20 && Date.now() - lastTrim > 30000 && video.currentTime - 10 > b.start(0)) {
+            lastTrim = Date.now();
+            try { sb.remove(0, video.currentTime - 10); return; } catch { }
+          }
+          pump();
+        };
+      }
+      queue.push(e.data);
+      pump();
+      if (!started) { started = true; video.play().catch(() => {}); setStatus('Низька затримка'); }
+    };
+    w.onclose = ev => {
+      if (ms !== m) return;
+      if (ev.code === 1013) startHls('Забагато глядачів з низькою затримкою, показую HLS');
+      else retry();
+    };
+    w.onerror = retry;
+  };
+}
+if (q.get('player') === 'hls') startHls(); else startMse();
+
+// 24-hour strip
+const WIN = 86400000;
+const tl = document.getElementById('tl');
+async function loadTimeline() {
+  const to = Date.now(), from = to - WIN;
+  const days = [...new Set([from, to].map(t => new Date(t).toISOString().slice(0, 10)))];
+  let parts;
+  try {
+    parts = await Promise.all(days.map(d =>
+      api(`/api/timeline?cam=${encodeURIComponent(cam)}&lens=${encodeURIComponent(lens)}&day=${d}`)));
+  } catch { return; }
+  tl.replaceChildren();
+  const pos = t => (t - from) / WIN * 100;
+  for (const r of parts.flatMap(x => x.ranges || [])) {
+    const f = Math.max(new Date(r.from).getTime(), from), t = Math.min(new Date(r.to).getTime(), to);
+    if (t <= f) continue;
+    const el = document.createElement('div');
+    el.className = r.source === 'sd' ? 'range sd' : 'range';
+    el.style.left = pos(f) + '%';
+    el.style.width = Math.max(pos(t) - pos(f), 0.1) + '%';
+    el.title = `${new Date(f).toLocaleTimeString('uk-UA')} – ${new Date(t).toLocaleTimeString('uk-UA')}` + (r.source === 'sd' ? ' (з картки)' : '');
+    tl.appendChild(el);
+  }
+  for (const ev of parts.flatMap(x => x.events || [])) {
+    const f = new Date(ev.from).getTime();
+    if (f < from || f > to) continue;
+    const el = document.createElement('div');
+    el.className = 'evt';
+    el.style.left = pos(f) + '%';
+    el.title = `${ev.type} ${new Date(f).toLocaleTimeString('uk-UA')}`;
+    tl.appendChild(el);
+  }
+}
+tl.addEventListener('click', e => {
+  const r = tl.getBoundingClientRect();
+  const t = new Date(Date.now() - WIN + (e.clientX - r.left) / r.width * WIN);
+  location.href = `archive.html?cam=${encodeURIComponent(cam)}&lens=${encodeURIComponent(lens)}&t=${encodeURIComponent(t.toISOString())}`;
+});
+loadTimeline();
+setInterval(loadTimeline, 60000);
 api('/api/cameras').then(cams => {
   const c = cams.find(x => x.id === cam);
   if (c) { document.title = document.getElementById('title').textContent = `${c.name} · ${lens}`; }
