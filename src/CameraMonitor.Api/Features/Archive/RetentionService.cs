@@ -58,6 +58,12 @@ public sealed class RetentionService(IServiceScopeFactory scopes, IOptions<Serve
 
         await DeleteOldEventsAsync(db, opt, now, ct);
 
+        if (deleted.Count > 0)
+        {
+            var evicted = deleted.Max(s => s.StartUtc.AddMilliseconds(s.DurationMs));
+            status.EvictedThroughUtc = status.EvictedThroughUtc > evicted ? status.EvictedThroughUtc : evicted;
+        }
+
         status.OldestSegmentUtc = await db.Segments.MinAsync(s => (DateTime?)s.StartUtc, ct);
         status.ArchiveBytes = Math.Max(0, archiveBytes);
         status.FreeBytes = FreeBytes(opt.DataDir);

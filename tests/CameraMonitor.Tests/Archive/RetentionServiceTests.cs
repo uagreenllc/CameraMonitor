@@ -40,6 +40,7 @@ public sealed class RetentionServiceTests
         var status = factory.Services.GetRequiredService<RetentionStatus>();
         status.LastDeleted.Should().Be(2);
         status.ArchiveBytes.Should().Be(1024);
+        status.EvictedThroughUtc.Should().BeCloseTo(now.AddDays(-15).AddSeconds(10), TimeSpan.FromSeconds(1));
     }
 
     [Fact]

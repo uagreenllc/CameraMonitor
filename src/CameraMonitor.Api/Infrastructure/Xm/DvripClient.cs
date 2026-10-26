@@ -19,13 +19,22 @@ public sealed class DvripClient(string host, int port, string user, string passw
     public const int PtzStopPreset = -1;       // python-dvr ptz_step: second message  // ponytail: verify on the real camera, swap the two if it moves on release
     public const int MaxPayloadBytes = 16 * 1024 * 1024;
 
+    /// <summary>Unread frames at which the receive loop stops reading the socket.</summary>
+    public const int MaxQueuedFrames = 256;
+
+
     private static readonly TimeSpan SnapshotTimeout = TimeSpan.FromSeconds(5);
     private const int FilePage = 64, MaxFiles = 512;
     private const string TimeFormat = "yyyy-MM-dd HH:mm:ss";
 
     private readonly SemaphoreSlim _lock = new(1, 1);
-    private readonly Channel<DvripFrame> _frames = Channel.CreateUnbounded<DvripFrame>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
+    // Bounded: a slow (throttled) download stops the receive loop, so TCP holds the camera back instead of the file piling up here.
+    // ponytail: 256 unsolicited non-alarm frames between two requests (which drain them) would delay alarm pushes until the next request.
+    private readonly Channel<DvripFrame> _frames = Channel.CreateBounded<DvripFrame>(
+        new BoundedChannelOptions(MaxQueuedFrames) { FullMode = BoundedChannelFullMode.Wait, SingleReader = true, SingleWriter = true });
     private readonly CancellationTokenSource _stop = new();
+
+    internal int QueuedFrames => _frames.Reader.Count;
     private TcpClient? _tcp;
     private NetworkStream? _stream;
     private Task _receive = Task.CompletedTask;
@@ -367,6 +376,7 @@ public sealed class DvripClient(string host, int port, string user, string passw
         try
         {
             var buf = new byte[64 * 1024];
+            var batch = new List<DvripFrame>();
             var len = 0;
             while (true)
             {
@@ -397,7 +407,7 @@ public sealed class DvripClient(string host, int port, string user, string passw
                     }
 
                     offset += consumed;
-                    Route(frame);
+                    batch.Add(frame);
                 }
 
                 if (offset > 0)
@@ -405,6 +415,13 @@ public sealed class DvripClient(string host, int port, string user, string passw
                     Buffer.BlockCopy(buf, offset, buf, 0, len - offset);
                     len -= offset;
                 }
+
+                foreach (var frame in batch)
+                {
+                    await RouteAsync(frame);
+                }
+
+                batch.Clear();
             }
         }
         catch (Exception e)
@@ -431,11 +448,11 @@ public sealed class DvripClient(string host, int port, string user, string passw
         }
     }
 
-    private void Route(DvripFrame frame)
+    private async ValueTask RouteAsync(DvripFrame frame)
     {
         if (frame.MsgId != DvripMessages.AlarmPush)
         {
-            _frames.Writer.TryWrite(frame);
+            await _frames.Writer.WriteAsync(frame, _stop.Token);
             return;
         }
 

@@ -30,6 +30,9 @@ public sealed class ServerOptions
     /// <summary>Archive holes shorter than this are not backfilled.</summary>
     public int SdMinGapSeconds { get; set; } = 120;
 
+    /// <summary>Download rate limit of the microSD backfill in kbit/s, so it does not starve the live streams; 0 = unlimited.</summary>
+    public int SdMaxKbps { get; set; } = 8000;
+
     /// <summary>Most concurrent low-latency relays (one ffmpeg each); viewers of a running relay do not count.</summary>
     public int MaxRelays { get; set; } = 4;
 }

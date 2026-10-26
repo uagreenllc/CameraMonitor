@@ -36,6 +36,12 @@ public sealed class FakeXmCamera : IAsyncDisposable
     public int DownloadChunk { get; set; } = 4096;
     public HashSet<ushort> Ignore { get; } = [];
 
+    /// <summary>Begin/end of every file query, in camera-local time.</summary>
+    public List<(DateTime Begin, DateTime End)> FileQueryRanges { get; } = [];
+
+    /// <summary>File names of every DownloadStart, in order.</summary>
+    public List<string> Downloads { get; } = [];
+
     /// <summary>When set, ConfigGet replies carry this Name (a late reply to an earlier request).</summary>
     public string? ConfigReplyName { get; set; }
 
@@ -272,6 +278,11 @@ public sealed class FakeXmCamera : IAsyncDisposable
         var channel = q["Channel"]!.GetValue<int>();
         var begin = ParseTime(q["BeginTime"]!);
         var end = ParseTime(q["EndTime"]!);
+        lock (FileQueryRanges)
+        {
+            FileQueryRanges.Add((begin, end));
+        }
+
         var items = new JsonArray();
         foreach (var (e, _) in Files.Where(f => f.Entry.Channel == channel && f.Entry.BeginLocal < end && f.Entry.EndLocal > begin)
                      .OrderBy(f => f.Entry.BeginLocal).Take(64))
@@ -301,6 +312,11 @@ public sealed class FakeXmCamera : IAsyncDisposable
 
     private async Task SendFileAsync(Connection conn, string fileName)
     {
+        lock (Downloads)
+        {
+            Downloads.Add(fileName);
+        }
+
         var bytes = Files.First(f => f.Entry.FileName == fileName).Bytes;
         for (var i = 0; i < bytes.Length; i += DownloadChunk)
         {

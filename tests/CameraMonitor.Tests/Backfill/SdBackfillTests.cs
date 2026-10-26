@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using CameraMonitor.Api.Features.Archive;
 using CameraMonitor.Api.Features.Backfill;
 using CameraMonitor.Api.Features.Cameras;
 using CameraMonitor.Api.Features.Events;
@@ -36,7 +37,8 @@ public sealed class SdBackfillTests : IAsyncLifetime
             Lenses = [new() { Id = "ptz", Channel = 2, Ptz = true }],
         };
         _factory = new ApiFactory().WithoutHostedServices().WithCameras(new CamerasOptions { Items = [cam] })
-            .WithSetting("Server:TimeZone", "Europe/Kyiv");
+            .WithSetting("Server:TimeZone", "Europe/Kyiv")
+            .WithSetting("Server:SdMaxKbps", "0");   // the throttle waits on the fake clock
         var sp = _factory.Services;
         var agents = sp.GetRequiredService<XmAgentStore>();
         agents.Register("c1", new XmCameraAgent(cam, DvripCodec.SofiaHash(""), agents, sp.GetRequiredService<IServiceScopeFactory>(),
@@ -228,6 +230,69 @@ public sealed class SdBackfillTests : IAsyncLifetime
 
         _fake.FileQueries.Should().Be(queries);
         _status.GetOrAdd("c1").GapsNoFiles.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Range_evicted_by_retention_is_not_queried_again()
+    {
+        await Seed((At(0), 300_000), (At(10), 1_200_000));   // gaps: the leading one [now − 3 d, 12:00) and [12:05, 12:10)
+        _factory.Services.GetRequiredService<RetentionStatus>().EvictedThroughUtc = At(0);
+
+        await _sd.RunOnceAsync("c1", CancellationToken.None);
+
+        _fake.FileQueries.Should().BeGreaterThan(0);
+        _fake.FileQueryRanges.Should().OnlyContain(r => r.Begin >= new DateTime(2026, 7, 1, 14, 59, 0),
+            "the evicted range before 12:00 UTC (15:00 local) must not be refilled");
+    }
+
+    [FfmpegFact]
+    public async Task Corrupt_file_does_not_block_the_gap_and_is_given_up_after_three_attempts()
+    {
+        await Seed((At(0), 300_000), (At(10), 1_200_000));
+        AddSdFile(new DateTime(2026, 7, 1, 15, 5, 0));
+        var corrupt = "/idea0/2026-07-01/001/15.06.00-15.06.30[R][@1][0].h264";
+        _fake.Files.Add((new XmFileEntry(corrupt, new DateTime(2026, 7, 1, 15, 6, 0), new DateTime(2026, 7, 1, 15, 6, 30), 1, 1),
+            [0, 0, 1, 0x42, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]));   // unknown frame magic, newest: tried first
+
+        await _sd.RunOnceAsync("c1", CancellationToken.None);
+
+        (await SdRows()).Select(r => r.StartUtc).Should().Equal(At(5), At(5, 10), At(5, 20));
+        for (var i = 0; i < 3; i++)
+        {
+            await _sd.RunOnceAsync("c1", CancellationToken.None);
+        }
+
+        _fake.Downloads.Count(d => d == corrupt).Should().Be(3);
+    }
+
+    [FfmpegFact]
+    public async Task Segment_times_are_scaled_to_the_card_file_duration()
+    {
+        await Seed((At(0), 300_000), (At(10), 1_200_000));
+        // 25 s of frames in a file the card says lasted 30 s: the camera delivered fewer frames than its fps byte says
+        AddFile(RawH264(25), new DateTime(2026, 7, 1, 15, 5, 0), new DateTime(2026, 7, 1, 15, 5, 0), new DateTime(2026, 7, 1, 15, 5, 30));
+
+        await _sd.RunOnceAsync("c1", CancellationToken.None);
+
+        var rows = await SdRows();
+        rows.Select(r => r.StartUtc).Should().Equal(new[] { At(5), At(5, 12), At(5, 24) }, (a, b) => Math.Abs((a - b).TotalMilliseconds) <= 250);
+        rows.Select(r => r.DurationMs).Should().Equal(new[] { 12_000, 12_000, 6_000 }, (a, b) => Math.Abs(a - b) <= 250);
+    }
+
+    [Fact]
+    public async Task Download_session_sends_a_keepalive_before_each_file()
+    {
+        await Seed((At(0), 300_000), (At(10), 1_200_000));
+        foreach (var m in new[] { 5, 7 })
+        {
+            var begin = new DateTime(2026, 7, 1, 15, m, 0);
+            _fake.Files.Add((new XmFileEntry($"/idea0/2026-07-01/001/{begin:HH.mm.ss}.h264", begin, begin.AddSeconds(30), 0, 1), []));   // no video
+        }
+
+        await _sd.RunOnceAsync("c1", CancellationToken.None);
+
+        _fake.Downloads.Should().HaveCount(2);
+        _fake.KeepAlives.Should().Be(2);
     }
 
     [Fact]

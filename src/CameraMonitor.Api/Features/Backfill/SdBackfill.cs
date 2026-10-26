@@ -3,6 +3,7 @@ using CameraMonitor.Api.Features.Archive;
 using CameraMonitor.Api.Features.Cameras;
 using CameraMonitor.Api.Features.Events;
 using CameraMonitor.Api.Features.Streams;
+using CameraMonitor.Api.Infrastructure;
 using CameraMonitor.Api.Infrastructure.Db;
 using CameraMonitor.Api.Infrastructure.Xm;
 using Microsoft.EntityFrameworkCore;
@@ -17,7 +18,8 @@ namespace CameraMonitor.Api.Features.Backfill;
 /// </summary>
 public sealed class SdBackfill(
     IServiceScopeFactory scopes, XmAgentStore agents, StreamStateStore streams, IOptionsMonitor<CamerasOptions> cameras,
-    IOptions<ServerOptions> server, SdRemuxer remuxer, BackfillStatus status, TimeProvider clock, ILogger<SdBackfill> logger) : BackgroundService
+    IOptions<ServerOptions> server, SdRemuxer remuxer, BackfillStatus status, RetentionStatus retention, TimeProvider clock,
+    ILogger<SdBackfill> logger) : BackgroundService
 {
     public static readonly TimeSpan Interval = TimeSpan.FromMinutes(10);
     public static readonly TimeSpan MaxFileSkew = TimeSpan.FromHours(1);
@@ -25,6 +27,12 @@ public sealed class SdBackfill(
 
     /// <summary>Files downloaded per camera per run: one run must not hold the gate for hours on a new install.</summary>
     public const int MaxFilesPerRun = 20;
+
+    /// <summary>A card file that fails to download or parse this many times is given up.</summary>
+    public const int MaxFileAttempts = 3;
+
+    /// <summary>Remuxed duration off the card's own Begin/End by more than this: segment times are scaled to the card's.</summary>
+    private const double MaxDurationSkew = 0.02;
 
     private static readonly TimeSpan QuerySlack = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan Settle = TimeSpan.FromMinutes(2);   // the live recorder may still be writing the last minutes
@@ -40,6 +48,7 @@ public sealed class SdBackfill(
 
     // ponytail: marked once downloaded, even if the remux then fails; a corrupt file must not be fetched every run. Lost on restart.
     private readonly HashSet<(StreamKey Key, string FileName, DateTime EndLocal)> _doneFiles = [];
+    private readonly Dictionary<(StreamKey Key, string FileName, DateTime EndLocal), int> _fileFailures = [];
     private readonly SemaphoreSlim _gate = new(1, 1);   // one run at a time: guards _exhausted, _doneFiles, _filesLeft and the status counters
     private int _filesLeft = MaxFilesPerRun;
     private TaskCompletionSource _wake = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -131,11 +140,17 @@ public sealed class SdBackfill(
             st.LastError = null;
             var o = server.Value;
             var now = clock.GetUtcNow().UtcDateTime;
-            var from = now.AddDays(-o.SdLoopDays);
+            // Never before what retention already evicted: refilled from the card, it would only be evicted again, every run.
+            var from = new[] { now.AddDays(-o.SdLoopDays), now.AddDays(-o.RetentionDays), retention.EvictedThroughUtc ?? DateTime.MinValue }.Max();
             var to = now - Settle;
             var minGap = TimeSpan.FromSeconds(o.SdMinGapSeconds);
             _exhausted.RemoveWhere(e => e.Gap.ToUtc < from);
             _doneFiles.RemoveWhere(f => ToUtc(f.EndLocal) < from);
+            foreach (var f in _fileFailures.Keys.Where(f => ToUtc(f.EndLocal) < from).ToList())
+            {
+                _fileFailures.Remove(f);
+            }
+
             _filesLeft = MaxFilesPerRun;
             var work = new List<(LensConfig Lens, Gap Gap)>();
             using (var scope = scopes.CreateScope())
@@ -165,7 +180,7 @@ public sealed class SdBackfill(
                 {
                     await FillGapAsync(cam, lens, gap, client, ct);
                 }
-                catch (Exception e) when (!ct.IsCancellationRequested)
+                catch (Exception e) when (!ct.IsCancellationRequested && e is not SessionLostException)
                 {
                     st.LastError = $"{lens.Id}: {e.Message}";
                     logger.LogWarning("SD backfill {Camera}/{Lens} {From:o}–{To:o} failed: {Error}", cam.Id, lens.Id, gap.FromUtc, gap.ToUtc, e.Message);
@@ -217,6 +232,7 @@ public sealed class SdBackfill(
 
         var added = 0;
         var cutShort = false;
+        var retryLater = false;
         // Newest first: the card overwrites its oldest files, and the newest gaps are the ones people look for.
         foreach (var file in files.Where(f => !_doneFiles.Contains((key, f.FileName, f.EndLocal))).OrderByDescending(f => f.BeginLocal))
         {
@@ -227,18 +243,48 @@ public sealed class SdBackfill(
             }
 
             _filesLeft--;
+            try
+            {
+                await client.KeepAliveAsync(ct);   // the session is idle between files (remux, indexing): keep the camera from dropping it
+            }
+            catch (Exception e) when (!ct.IsCancellationRequested)
+            {
+                throw new SessionLostException($"download session lost: {e.Message}", e);
+            }
+
+            var fileId = (key, file.FileName, file.EndLocal);
             var tmp = Path.Combine(o.DataDir, "tmp", "sd", cam.Id, lens.Id, Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tmp);
             try
             {
                 var parser = new XmFrameParser();
                 var annexB = Path.Combine(tmp, "in.264");
-                await using (var output = File.Create(annexB))
+                try
                 {
-                    await client.DownloadAsync(file, new XmStripStream(parser, output), ct);
+                    await using var output = File.Create(annexB);
+                    await client.DownloadAsync(file, new ThrottledStream(new XmStripStream(parser, output), o.SdMaxKbps, clock), ct);
+                }
+                catch (Exception e) when (e is not (OperationCanceledException or InvalidOperationException))
+                {
+                    // One bad file must not block its gap: newest first, it would be the first one tried every run.
+                    // Session-level failures (not connected, cancellation) propagate.
+                    var attempts = _fileFailures[fileId] = _fileFailures.GetValueOrDefault(fileId) + 1;
+                    var givenUp = attempts >= MaxFileAttempts;
+                    if (givenUp)
+                    {
+                        _fileFailures.Remove(fileId);
+                        _doneFiles.Add(fileId);
+                    }
+
+                    retryLater |= !givenUp;
+                    st.LastError = $"{lens.Id}: {file.FileName}: {e.Message}";
+                    logger.LogWarning("SD backfill {Camera}/{Lens}: {File} failed (attempt {Attempt} of {Max}{GivenUp}): {Error}",
+                        cam.Id, lens.Id, file.FileName, attempts, MaxFileAttempts, givenUp ? ", given up" : "", e.Message);
+                    continue;
                 }
 
-                _doneFiles.Add((key, file.FileName, file.EndLocal));
+                _fileFailures.Remove(fileId);
+                _doneFiles.Add(fileId);
 
                 if (parser.FirstIFrame is not { } first)
                 {
@@ -255,7 +301,7 @@ public sealed class SdBackfill(
                 }
 
                 var fps = first.Fps is > 0 and <= 60 ? first.Fps : 15;
-                var segments = await remuxer.RemuxAsync(annexB, fps, tmp, ct);
+                var segments = ScaleToCardDuration(await remuxer.RemuxAsync(annexB, fps, tmp, ct), file, cam, lens);
                 var firstKept = true;
                 foreach (var seg in segments)
                 {
@@ -348,13 +394,34 @@ public sealed class SdBackfill(
             }
         }
 
-        if (added == 0 && !cutShort)
+        if (added == 0 && !cutShort && !retryLater)
         {
             _exhausted.Add((key, gap));   // the card has nothing usable here: do not download the same files every run
         }
 
         logger.LogInformation("SD backfill {Camera}/{Lens}: {Added} segments added for {From:o}–{To:o}", cam.Id, lens.Id, added, gap.FromUtc, gap.ToUtc);
         return added;
+    }
+
+    /// <summary>
+    /// The remux dates frames by the header's fps byte; a camera that delivered fewer (or more) frames than that would
+    /// stretch or squeeze an hour-long file by minutes. When the last segment's end is off the card's own duration by more
+    /// than <see cref="MaxDurationSkew"/>, every segment time is scaled to the card's.
+    /// </summary>
+    private IReadOnlyList<SdRemuxer.RemuxedSegment> ScaleToCardDuration(
+        IReadOnlyList<SdRemuxer.RemuxedSegment> segments, XmFileEntry file, CameraConfig cam, LensConfig lens)
+    {
+        var expected = file.EndLocal - file.BeginLocal;
+        var actual = segments.Count > 0 ? segments[^1].End : TimeSpan.Zero;
+        if (expected <= TimeSpan.Zero || actual <= TimeSpan.Zero || Math.Abs((actual / expected) - 1) <= MaxDurationSkew)
+        {
+            return segments;
+        }
+
+        var scale = expected / actual;
+        logger.LogWarning("SD backfill {Camera}/{Lens}: {File} remuxed to {Actual} but the card says {Expected}; segment times scaled by {Scale:F3}",
+            cam.Id, lens.Id, file.FileName, actual, expected, scale);
+        return [.. segments.Select(s => s with { Start = s.Start * scale, End = s.End * scale })];
     }
 
     /// <summary>
@@ -417,6 +484,9 @@ public sealed class SdBackfill(
 
         return TimeZoneInfo.ConvertTimeToUtc(local, Tz);
     }
+
+    /// <summary>The download session failed a keep-alive: the rest of the run would fail the same way.</summary>
+    private sealed class SessionLostException(string message, Exception inner) : Exception(message, inner);
 
     private void DeleteDir(string dir)
     {

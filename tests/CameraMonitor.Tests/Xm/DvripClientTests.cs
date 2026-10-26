@@ -234,6 +234,29 @@ public sealed class DvripClientTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Slow_download_reader_stops_reading_the_socket()
+    {
+        var bytes = new byte[8_000_000];   // ~2000 frames of 4 KB
+        var entry = new XmFileEntry("/idea0/2026-10-26/001/00.00.00-00.01.00[R][@1][0].h264",
+            new DateTime(2026, 10, 26, 0, 0, 0), new DateTime(2026, 10, 26, 0, 1, 0), 7812, 0);
+        _fake.Files.Add((entry, bytes));
+        var c = await ConnectedClient();
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var download = c.DownloadAsync(entry, new GatedStream(gate.Task), CancellationToken.None);
+
+        await Task.Delay(1000);   // the camera sends at loopback speed while the destination is blocked
+        c.QueuedFrames.Should().BeLessThanOrEqualTo(DvripClient.MaxQueuedFrames + 64, "a throttled download must hold the camera back, not buffer the file");
+
+        gate.SetResult();
+        await download.WaitAsync(TimeSpan.FromSeconds(30));
+    }
+
+    private sealed class GatedStream(Task gate) : MemoryStream
+    {
+        public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken ct = default) => await gate.WaitAsync(ct);
+    }
+
+    [Fact]
     public async Task Closed_raised_when_camera_drops_connection()
     {
         var c = await ConnectedClient();
