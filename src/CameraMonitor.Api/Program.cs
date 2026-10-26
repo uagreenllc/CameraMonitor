@@ -6,6 +6,7 @@ using CameraMonitor.Api.Features.Cameras;
 using CameraMonitor.Api.Features.Events;
 using CameraMonitor.Api.Features.Status;
 using CameraMonitor.Api.Features.Streams;
+using CameraMonitor.Api.Infrastructure;
 using CameraMonitor.Api.Infrastructure.Db;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -34,6 +35,12 @@ builder.Services.AddSingleton<FfmpegFactory>(sp => (args, name) => new FfmpegPro
 builder.Services.AddDbContext<AppDbContext>((sp, o) =>
     o.UseSqlite(DbSetup.ConnectionString(sp.GetRequiredService<IOptions<ServerOptions>>().Value.DataDir)));
 builder.Services.AddSingleton<TileService>();
+builder.Services.AddSingleton<RelaySource>(sp =>
+{
+    var ffmpeg = sp.GetRequiredService<IOptions<ServerOptions>>().Value.FfmpegPath;
+    return (args, sink, ct) => ProcessRunner.RunAsync(ffmpeg, args, sink, Timeout.InfiniteTimeSpan, ct);
+});
+builder.Services.AddSingleton<LowLatencyRelay>();
 builder.Services.AddSingleton<ExportService>();
 builder.Services.AddSingleton<IDurationProbe, FfprobeDurationProbe>();
 builder.Services.AddSingleton<SegmentIndexer>();
@@ -59,10 +66,11 @@ app.UseSerilogRequestLogging(o => o.GetLevel = (ctx, _, ex) =>
     ex != null || ctx.Response.StatusCode >= 500 ? LogEventLevel.Error
     : ctx.Response.StatusCode >= 400 ? LogEventLevel.Warning
     : ctx.Request.Path.StartsWithSegments("/api/tile") || ctx.Request.Path.StartsWithSegments("/live") || ctx.Request.Path.StartsWithSegments("/seg")
-        || ctx.Request.Path.StartsWithSegments("/events") || ctx.Request.Path.StartsWithSegments("/api/snapshot") ? LogEventLevel.Debug
+        || ctx.Request.Path.StartsWithSegments("/events") || ctx.Request.Path.StartsWithSegments("/ws") || ctx.Request.Path.StartsWithSegments("/api/snapshot") ? LogEventLevel.Debug
     : LogEventLevel.Information);
 app.UseDefaultFiles();
 app.UseStaticFiles();
+app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(15) });
 app.MapHealthChecks("/health");
 app.MapCamerasEndpoints();
 app.MapLiveEndpoints();

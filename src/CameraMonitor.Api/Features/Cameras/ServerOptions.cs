@@ -29,4 +29,7 @@ public sealed class ServerOptions
 
     /// <summary>Archive holes shorter than this are not backfilled.</summary>
     public int SdMinGapSeconds { get; set; } = 120;
+
+    /// <summary>Most concurrent low-latency relays (one ffmpeg each); viewers of a running relay do not count.</summary>
+    public int MaxRelays { get; set; } = 4;
 }

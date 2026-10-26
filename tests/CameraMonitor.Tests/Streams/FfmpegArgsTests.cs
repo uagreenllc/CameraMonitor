@@ -19,6 +19,14 @@ public class FfmpegArgsTests
     }
 
     [Fact]
+    public void LowLatency_builds_fmp4_pipe_args() =>
+        FfmpegArgs.LowLatency("rtsp://x/y").Should().Equal(
+            "-nostdin", "-hide_banner", "-loglevel", "warning", "-rtsp_transport", "tcp", "-i", "rtsp://x/y",
+            "-map", "0:v", "-c:v", "copy", "-an", "-f", "mp4",
+            "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-frag_duration", "200000", "-min_frag_duration", "100000",
+            "pipe:1");
+
+    [Fact]
     public void Recording_with_audio_adds_aac()
     {
         var args = FfmpegArgs.Recording("rtsp://h/x", "rec", "live", 10, 2, true);

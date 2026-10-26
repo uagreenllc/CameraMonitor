@@ -34,6 +34,15 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         return this;
     }
 
+    private RelaySource? _relaySource;
+
+    /// <summary>Replaces the low-latency relay's ffmpeg source. Call before CreateClient().</summary>
+    public ApiFactory WithRelaySource(RelaySource source)
+    {
+        _relaySource = source;
+        return this;
+    }
+
     private readonly Dictionary<string, string> _settings = [];
 
     /// <summary>Sets an extra host setting (e.g. Server:FfmpegPath). Call before CreateClient().</summary>
@@ -68,6 +77,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         builder.ConfigureTestServices(services =>
         {
             services.Replace(ServiceDescriptor.Singleton(_ffmpeg));
+            if (_relaySource is not null) services.Replace(ServiceDescriptor.Singleton(_relaySource));
             if (_noHostedServices) services.RemoveAll<IHostedService>();
         });
     }

@@ -31,4 +31,13 @@ public static class FfmpegArgs
             + $"|[f=hls:hls_time={hlsSeconds}:hls_list_size=6:hls_flags=delete_segments+independent_segments+program_date_time:onfail=ignore]{live}/index.m3u8"]);
         return args;
     }
+
+    /// <summary>Video-only fragmented MP4 on stdout, ~200 ms fragments, for the WebSocket relay.</summary>
+    public static IReadOnlyList<string> LowLatency(string rtspUrl) =>
+    [
+        "-nostdin", "-hide_banner", "-loglevel", "warning", "-rtsp_transport", "tcp", "-i", rtspUrl,
+        "-map", "0:v", "-c:v", "copy", "-an", "-f", "mp4",
+        "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-frag_duration", "200000", "-min_frag_duration", "100000",
+        "pipe:1",
+    ];
 }

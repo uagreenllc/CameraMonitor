@@ -20,19 +20,30 @@ public static class ProcessRunner
         using var process = Process.Start(psi) ?? throw new InvalidOperationException($"Cannot start {exe}");
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(timeout);
+        // a blocked pipe read may not observe the token (Windows): killing ends it with EOF
+        using var kill = cts.Token.Register(() => Kill(process));
+        var drain = process.StandardError.BaseStream.CopyToAsync(Stream.Null, cts.Token);
         try
         {
-            var copy = process.StandardOutput.BaseStream.CopyToAsync(stdout, cts.Token);
-            var drain = process.StandardError.BaseStream.CopyToAsync(Stream.Null, cts.Token);
-            await Task.WhenAll(copy, drain);
+            await process.StandardOutput.BaseStream.CopyToAsync(stdout, cts.Token);
+            await drain;
             await process.WaitForExitAsync(cts.Token);
             return process.ExitCode;
         }
-        catch (OperationCanceledException)
+        catch
         {
-            try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { /* already exited */ }
+            // cancellation, timeout, or the sink threw: never leave the process running
+            Kill(process);
+            try { await drain; } catch { /* observed; the first error wins */ }
             throw;
         }
+    }
+
+    private static void Kill(Process process)
+    {
+        try { process.Kill(entireProcessTree: true); }
+        catch (InvalidOperationException) { /* already exited */ }
+        catch (System.ComponentModel.Win32Exception) { /* exiting */ }
     }
 
     public static async Task<(int ExitCode, byte[] Stdout)> RunAsync(string exe, IReadOnlyList<string> args, TimeSpan timeout, CancellationToken ct)

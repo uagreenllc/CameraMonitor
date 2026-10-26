@@ -11,7 +11,7 @@ public static class StatusEndpoints
 {
     public static IEndpointRouteBuilder MapStatusEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/status", (StreamStateStore store, XmAgentStore agents, RetentionStatus disk, BackfillStatus backfill, IOptions<ServerOptions> server, TimeProvider clock) => new
+        app.MapGet("/api/status", (StreamStateStore store, XmAgentStore agents, RetentionStatus disk, BackfillStatus backfill, LowLatencyRelay relay, IOptions<ServerOptions> server, TimeProvider clock) => new
         {
             Streams = store.All().OrderBy(s => s.Key.CameraId).ThenBy(s => s.Key.LensId).Select(s => new
             {
@@ -56,6 +56,12 @@ public static class StatusEndpoints
                 b.LastError,
                 b.LastRunUtc,
             }),
+            Relays = new
+            {
+                Active = relay.ActiveRelays,
+                Max = server.Value.MaxRelays,
+                Keys = relay.ActiveKeys.Select(k => k.ToString()),
+            },
         });
         return app;
     }

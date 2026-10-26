@@ -20,6 +20,18 @@ public sealed class StatusEndpointTests
     }
 
     [Fact]
+    public async Task Status_has_relays_block()
+    {
+        using var factory = new ApiFactory();
+        var json = await factory.CreateClient().GetFromJsonAsync<JsonElement>("/api/status");
+
+        var relays = json.GetProperty("relays");
+        relays.GetProperty("active").GetInt32().Should().Be(0);
+        relays.GetProperty("max").GetInt32().Should().Be(4);
+        relays.GetProperty("keys").GetArrayLength().Should().Be(0);
+    }
+
+    [Fact]
     public async Task Status_has_cameras_block()
     {
         using var factory = new ApiFactory();
