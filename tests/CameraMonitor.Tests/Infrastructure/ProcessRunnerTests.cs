@@ -22,6 +22,28 @@ public class ProcessRunnerTests
     }
 
     [FfmpegFact]
+    public async Task Stderr_tail_keeps_the_last_bytes_of_the_error_output()
+    {
+        var tail = new StderrTail();
+        string[] args = ["-nostdin", "-hide_banner", "-i", "cm-does-not-exist.mp4", "-f", "null", "-"];
+
+        var code = await ProcessRunner.RunAsync("ffmpeg", args, Stream.Null, TimeSpan.FromSeconds(30), CancellationToken.None, tail);
+
+        code.Should().NotBe(0);
+        tail.ToString().Should().Contain("cm-does-not-exist.mp4");
+    }
+
+    [Fact]
+    public void Stderr_tail_is_bounded()
+    {
+        var tail = new StderrTail(8);
+        tail.Write("0123456789"u8);
+        tail.Write("ab"u8);
+
+        tail.ToString().Should().Be("456789ab");
+    }
+
+    [FfmpegFact]
     public async Task Cancellation_with_infinite_timeout_kills_the_process()
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));

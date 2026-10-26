@@ -35,11 +35,7 @@ builder.Services.AddSingleton<FfmpegFactory>(sp => (args, name) => new FfmpegPro
 builder.Services.AddDbContext<AppDbContext>((sp, o) =>
     o.UseSqlite(DbSetup.ConnectionString(sp.GetRequiredService<IOptions<ServerOptions>>().Value.DataDir)));
 builder.Services.AddSingleton<TileService>();
-builder.Services.AddSingleton<RelaySource>(sp =>
-{
-    var ffmpeg = sp.GetRequiredService<IOptions<ServerOptions>>().Value.FfmpegPath;
-    return (args, sink, ct) => ProcessRunner.RunAsync(ffmpeg, args, sink, Timeout.InfiniteTimeSpan, ct);
-});
+builder.Services.AddSingleton(sp => LowLatencyRelay.FfmpegSource(sp.GetRequiredService<IOptions<ServerOptions>>().Value.FfmpegPath));
 builder.Services.AddSingleton<LowLatencyRelay>();
 builder.Services.AddSingleton<ExportService>();
 builder.Services.AddSingleton<IDurationProbe, FfprobeDurationProbe>();
@@ -70,7 +66,8 @@ app.UseSerilogRequestLogging(o => o.GetLevel = (ctx, _, ex) =>
     : LogEventLevel.Information);
 app.UseDefaultFiles();
 app.UseStaticFiles();
-app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(15) });
+// KeepAliveTimeout: a peer that stops answering pings is aborted, so its handler (and a blocked send) ends.
+app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(15), KeepAliveTimeout = TimeSpan.FromSeconds(30) });
 app.MapHealthChecks("/health");
 app.MapCamerasEndpoints();
 app.MapLiveEndpoints();

@@ -221,4 +221,15 @@ public class LowLatencyRelayTests
         b.Should().HaveCount(4);
         await Until(() => relay.ActiveRelays == 0);
     }
+
+    [FfmpegFact]
+    public async Task Ffmpeg_source_failure_carries_stderr()
+    {
+        var source = LowLatencyRelay.FfmpegSource("ffmpeg");
+        string[] args = ["-nostdin", "-hide_banner", "-loglevel", "error", "-i", "cm-relay-missing.mp4", "-f", "null", "-"];
+
+        var act = () => source(args, Stream.Null, CancellationToken.None);
+
+        (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain("cm-relay-missing.mp4");
+    }
 }

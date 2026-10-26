@@ -116,4 +116,44 @@ public sealed class XmAlarmServerTests
         await cts.CancelAsync();
         await run;
     }
+
+    [Fact]
+    public async Task Retry_after_a_bind_failure_waits_on_the_injected_clock()
+    {
+        var port = FreePort();
+        var blocker = new TcpListener(IPAddress.Any, port);
+        blocker.Start();
+        using var f = new ApiFactory().WithoutHostedServices().WithSetting("Server:XmAlarmServerPort", port.ToString());
+        var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
+        using var server = ActivatorUtilities.CreateInstance<XmAlarmServer>(f.Services, (TimeProvider)clock);
+        await server.StartAsync(CancellationToken.None);   // the bind fails: the port is taken
+        blocker.Stop();
+        try
+        {
+            await Task.Delay(300);
+            (await CanConnect(port)).Should().BeFalse("the retry waits for the fake clock");
+
+            clock.Advance(TimeSpan.FromSeconds(10));
+
+            (await UntilAsync(() => CanConnect(port))).Should().BeTrue();
+        }
+        finally
+        {
+            await server.StopAsync(CancellationToken.None);
+        }
+    }
+
+    private static async Task<bool> CanConnect(int port)
+    {
+        using var tcp = new TcpClient();
+        try
+        {
+            await tcp.ConnectAsync(IPAddress.Loopback, port);
+            return true;
+        }
+        catch (SocketException)
+        {
+            return false;
+        }
+    }
 }

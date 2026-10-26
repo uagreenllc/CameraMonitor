@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.WebSockets;
 using CameraMonitor.Api.Features.Cameras;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace CameraMonitor.Tests.Streams;
 
@@ -50,6 +52,22 @@ public class LiveWsEndpointTests
 
         ws.CloseStatus.Should().Be((WebSocketCloseStatus)1011);
         await ws.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, null, cts.Token);
+    }
+
+    [Fact]
+    public async Task Ws_is_closed_when_the_app_stops()
+    {
+        using var factory = Factory(new FakeRelaySource(3));   // 3 fragments, then the source pauses
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        using var ws = await factory.Server.CreateWebSocketClient().ConnectAsync(Live, cts.Token);
+        (await Receive(ws, cts.Token)).Should().Equal(FakeRelaySource.Init);
+
+        factory.Services.GetRequiredService<IHostApplicationLifetime>().StopApplication();
+
+        WebSocketReceiveResult r;
+        do r = await ws.ReceiveAsync(new byte[64 * 1024], cts.Token);
+        while (r.MessageType != WebSocketMessageType.Close);
+        ws.CloseStatus.Should().Be(WebSocketCloseStatus.EndpointUnavailable);
     }
 
     [Fact]

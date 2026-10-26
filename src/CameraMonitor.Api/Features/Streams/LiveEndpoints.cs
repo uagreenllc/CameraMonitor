@@ -38,11 +38,13 @@ public static class LiveEndpoints
         });
         // Map, not MapGet: HTTP/2 WebSockets arrive as CONNECT
         app.Map("/ws/live/{cam}/{lens}", async (string cam, string lens, HttpContext http, LowLatencyRelay relay,
-            IOptionsMonitor<CamerasOptions> cameras) =>
+            IOptionsMonitor<CamerasOptions> cameras, IOptions<ServerOptions> server, IHostApplicationLifetime lifetime) =>
         {
             if (!http.WebSockets.IsWebSocketRequest || !SafeName.IsSafe(cam) || !SafeName.IsSafe(lens)) return Results.BadRequest();
-            using var sub = relay.Subscribe(new StreamKey(cam, lens));
-            if (sub is null && !cameras.CurrentValue.Items.Any(c => c.Id == cam && c.Lenses.Any(l => l.Id == lens))) return Results.NotFound();
+            var key = new StreamKey(cam, lens);
+            using var sub = relay.Subscribe(key);
+            // the relay's own lookup: only a stream it could have started is "over the limit", anything else is unknown
+            if (sub is null && !StreamSupervisor.BuildSpecs(cameras.CurrentValue, server.Value).Any(s => s.Key == key)) return Results.NotFound();
 
             using var ws = await http.WebSockets.AcceptWebSocketAsync();
             if (sub is null)
@@ -52,13 +54,20 @@ public static class LiveEndpoints
             }
 
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted);
+            // Shutdown: end the feed so the client gets a close frame, and give it 5 s to answer; an open page must not stall the host.
+            using var stopping = lifetime.ApplicationStopping.Register(() =>
+            {
+                sub.Dispose();
+                cts.CancelAfter(TimeSpan.FromSeconds(5));
+            });
             var receive = ReceiveUntilClosed(ws, cts);
             try
             {
                 await foreach (var msg in sub.Messages.ReadAllAsync(cts.Token))
                     await ws.SendAsync(msg, WebSocketMessageType.Binary, endOfMessage: true, cts.Token);
-                // source ended or this client fell too far behind
-                await TryClose(ws, (WebSocketCloseStatus)1011, "stream ended");
+                // source ended, this client fell too far behind, or the server is stopping
+                if (lifetime.ApplicationStopping.IsCancellationRequested) await TryClose(ws, WebSocketCloseStatus.EndpointUnavailable, "server stopping");
+                else await TryClose(ws, (WebSocketCloseStatus)1011, "stream ended");
                 cts.CancelAfter(TimeSpan.FromSeconds(5));   // wait for the client's close, not forever
             }
             catch (Exception ex) when (ex is OperationCanceledException or WebSocketException)

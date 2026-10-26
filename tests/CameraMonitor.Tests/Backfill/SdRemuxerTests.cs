@@ -65,4 +65,20 @@ public class SdRemuxerTests
         }
         finally { Directory.Delete(dir, true); }
     }
+
+    [FfmpegFact]
+    public async Task Failed_remux_reports_ffmpeg_stderr()
+    {
+        var dir = $"./cm-tests-data/remux-{Guid.NewGuid():N}";
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var remuxer = new SdRemuxer(Options.Create(new ServerOptions()), NullLogger<SdRemuxer>.Instance);
+
+            var act = () => remuxer.RemuxAsync($"{dir}/cm-missing.264", 15, dir, default);
+
+            (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain("cm-missing.264");
+        }
+        finally { Directory.Delete(dir, true); }
+    }
 }

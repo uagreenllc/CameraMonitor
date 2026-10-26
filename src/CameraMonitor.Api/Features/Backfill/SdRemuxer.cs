@@ -25,11 +25,13 @@ public sealed class SdRemuxer(IOptions<ServerOptions> server, ILogger<SdRemuxer>
             "-f", "segment", "-segment_time", o.SegmentSeconds.ToString(CultureInfo.InvariantCulture), "-segment_format", "mpegts",
             "-segment_list", listPath, "-segment_list_type", "csv", $"{dir}/%05d.ts",
         ];
-        var (code, _) = await ProcessRunner.RunAsync(o.FfmpegPath, args, Timeout, ct);
+        var stderr = new StderrTail();
+        var code = await ProcessRunner.RunAsync(o.FfmpegPath, args, Stream.Null, Timeout, ct, stderr);
         if (code != 0)
         {
-            logger.LogWarning("ffmpeg remux of {Input} failed with exit code {Code}", annexBPath, code);
-            throw new InvalidOperationException($"ffmpeg remux failed with exit code {code}");
+            var error = RtspUrlBuilder.Redact(stderr.ToString());
+            logger.LogWarning("ffmpeg remux of {Input} failed with exit code {Code}: {Stderr}", annexBPath, code, error);
+            throw new InvalidOperationException($"ffmpeg remux failed with exit code {code}: {error}");
         }
         return ParseSegmentList(await File.ReadAllTextAsync(listPath, ct), outDir);
     }

@@ -12,7 +12,8 @@ namespace CameraMonitor.Api.Features.Events;
 /// (NetWork.AlarmServer) and sends AlarmInfo frames. The sender is matched to a camera by its IP.
 /// </summary>
 public sealed class XmAlarmServer(
-    IOptionsMonitor<CamerasOptions> cameras, XmAgentStore agents, IOptions<ServerOptions> server, ILogger<XmAlarmServer> logger) : BackgroundService
+    IOptionsMonitor<CamerasOptions> cameras, XmAgentStore agents, IOptions<ServerOptions> server, TimeProvider clock,
+    ILogger<XmAlarmServer> logger) : BackgroundService
 {
     private static readonly TimeSpan ReadWindow = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(10);
@@ -55,7 +56,7 @@ public sealed class XmAlarmServer(
                 logger.LogError(e, "XM alarm server failed, retrying in {Delay} s", RetryDelay.TotalSeconds);
                 try
                 {
-                    await Task.Delay(RetryDelay, stoppingToken);
+                    await Task.Delay(RetryDelay, clock, stoppingToken);
                 }
                 catch (OperationCanceledException)
                 {

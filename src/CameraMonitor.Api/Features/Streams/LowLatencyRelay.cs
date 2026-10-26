@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using CameraMonitor.Api.Features.Cameras;
+using CameraMonitor.Api.Infrastructure;
 using Microsoft.Extensions.Options;
 
 namespace CameraMonitor.Api.Features.Streams;
@@ -24,6 +25,14 @@ public sealed class LowLatencyRelay(
     IOptionsMonitor<CamerasOptions> cameras, IOptions<ServerOptions> server, RelaySource source, TimeProvider clock,
     ILogger<LowLatencyRelay> logger) : IDisposable
 {
+    /// <summary>The real source: ffmpeg until cancelled. A non-zero exit throws with the tail of ffmpeg's stderr, which the relay logs redacted.</summary>
+    public static RelaySource FfmpegSource(string ffmpeg) => async (args, sink, ct) =>
+    {
+        var stderr = new StderrTail();
+        var code = await ProcessRunner.RunAsync(ffmpeg, args, sink, Timeout.InfiniteTimeSpan, ct, stderr);
+        return code == 0 ? 0 : throw new InvalidOperationException($"ffmpeg exited with code {code}: {stderr}");
+    };
+
     public static readonly TimeSpan IdleTimeout = TimeSpan.FromSeconds(30);
     public const int ClientQueue = 64;   // messages buffered per client; a client this far behind is dropped
     private const int MaxBacklog = 300;  // ponytail: a GOP longer than this (~60 s) gives late joiners a partial backlog, not unbounded memory
