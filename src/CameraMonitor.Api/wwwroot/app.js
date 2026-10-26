@@ -6,7 +6,7 @@ async function api(path) {
 function fmtTime(iso) { return iso ? new Date(iso).toLocaleString('uk-UA') : '—'; }
 function statusLabel(status) { return { online: 'онлайн', offline: 'офлайн', starting: 'запуск' }[status] || status; }
 function navHtml(active) {
-  const l = [['index.html', 'Камери'], ['archive.html', 'Архів'], ['status.html', 'Статус']];
+  const l = [['index.html', 'Камери'], ['archive.html', 'Архів'], ['events.html', 'Події'],['status.html', 'Статус']];
   return l.map(([h, t]) => `<a href="${h}"${h === active ? ' class="active"' : ''}>${t}</a>`).join('');
 }
 function esc(s) { return String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';'); }

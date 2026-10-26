@@ -11,6 +11,7 @@
 select, input { background: #1a1a1a; color: #eee; border: 1px solid #333; border-radius: 4px; padding: 6px 8px; font: inherit; }
 .timeline { position: relative; height: 40px; background: #1a1a1a; border-radius: 4px; margin: 12px 0; cursor: pointer; overflow: hidden; }
 .timeline .range { position: absolute; top: 0; bottom: 0; background: #2f6f3e; }
+.timeline .evt { position: absolute; top: 0; bottom: 0; width: 2px; background: #f85149; }
 .timeline .cursor { position: absolute; top: 0; bottom: 0; width: 2px; background: #f85149; pointer-events: none; display: none; }
 .hours { display: flex; justify-content: space-between; font-size: .75rem; color: #888; }
 .export { margin-top: 16px; }
@@ -64,8 +65,19 @@ async function loadTimeline() {
   // the API takes UTC days; a local day spans two of them, so fetch both and concatenate
   dayStart = new Date($('date').value + 'T00:00').getTime();
   const days = [...new Set([dayStart, dayStart + DAY - 1].map(t => new Date(t).toISOString().slice(0, 10)))];
-  const data = { ranges: (await Promise.all(days.map(d =>
-    api(`/api/timeline?cam=${encodeURIComponent(cam)}&lens=${encodeURIComponent(lens)}&day=${d}`)))).flatMap(x => x.ranges) };
+  const parts = await Promise.all(days.map(d =>
+    api(`/api/timeline?cam=${encodeURIComponent(cam)}&lens=${encodeURIComponent(lens)}&day=${d}`)));
+  const data = { ranges: parts.flatMap(x => x.ranges), events: parts.flatMap(x => x.events || []) };
+  tl.querySelectorAll('.evt').forEach(e => e.remove());
+  for (const ev of data.events) {
+    const f = new Date(ev.from).getTime();
+    if (f < dayStart || f >= dayStart + DAY) continue;
+    const el = document.createElement('div');
+    el.className = 'evt';
+    el.style.left = ((f - dayStart) / DAY * 100) + '%';
+    el.title = `${ev.type} ${new Date(f).toLocaleTimeString('uk-UA')}`;
+    tl.insertBefore(el, cur);
+  }
   $('empty').hidden = data.ranges.length > 0;
   for (const r of data.ranges) {
     const f = new Date(r.from).getTime(), t = new Date(r.to).getTime();
@@ -126,7 +138,14 @@ $('xt').addEventListener('change', updateExport);
   }
   const want = `${q.get('cam')}/${q.get('lens')}`;
   if ([...sel.options].some(o => o.value === want)) sel.value = want;
-  loadTimeline();
+  const t = new Date(q.get('t') || '');
+  if (!isNaN(t)) {
+    $('date').value = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
+    await loadTimeline();
+    play(t);
+  } else {
+    loadTimeline();
+  }
 })();
 </script>
 </body>

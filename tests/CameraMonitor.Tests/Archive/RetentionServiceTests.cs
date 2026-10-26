@@ -43,6 +43,29 @@ public sealed class RetentionServiceTests
     }
 
     [Fact]
+    public async Task Old_events_and_snapshots_are_deleted()
+    {
+        using var factory = new ApiFactory().WithoutHostedServices().WithSetting("Server:RetentionDays", "14");
+        factory.CreateClient();
+        var now = DateTime.UtcNow;
+        Directory.CreateDirectory($"{factory.DataDir}/events/a");
+        File.WriteAllBytes($"{factory.DataDir}/events/a/old.jpg", [1]);
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.Events.Add(new EventRow { CameraId = "a", LensId = "b", Type = "human", StartedUtc = now.AddDays(-20), SnapshotPath = "events/a/old.jpg" });
+            db.Events.Add(new EventRow { CameraId = "a", LensId = "b", Type = "motion", StartedUtc = now.AddDays(-1) });
+            await db.SaveChangesAsync();
+        }
+
+        await factory.Services.GetRequiredService<RetentionService>().RunOnceAsync(CancellationToken.None);
+
+        using var scope2 = factory.Services.CreateScope();
+        (await scope2.ServiceProvider.GetRequiredService<AppDbContext>().Events.Select(e => e.Type).ToListAsync()).Should().Equal("motion");
+        File.Exists($"{factory.DataDir}/events/a/old.jpg").Should().BeFalse();
+    }
+
+    [Fact]
     public async Task RunOnceAsync_skips_an_undeletable_file_and_deletes_the_rest()
     {
         if (!OperatingSystem.IsWindows()) return; // FileShare.None blocks deletion only on Windows

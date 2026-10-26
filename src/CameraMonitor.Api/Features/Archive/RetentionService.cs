@@ -56,12 +56,30 @@ public sealed class RetentionService(IServiceScopeFactory scopes, IOptions<Serve
         foreach (var d in deleted.Select(s => Path.GetDirectoryName(Path.Combine(opt.DataDir, s.Path))!).Distinct())
             RemoveIfEmpty(d, 2); // hour, then day; never above rec/{cam}/{lens}
 
+        await DeleteOldEventsAsync(db, opt, now, ct);
+
         status.OldestSegmentUtc = await db.Segments.MinAsync(s => (DateTime?)s.StartUtc, ct);
         status.ArchiveBytes = Math.Max(0, archiveBytes);
         status.FreeBytes = FreeBytes(opt.DataDir);
         status.LastRunUtc = now;
         status.LastDeleted = deleted.Count;
         if (deleted.Count > 0) logger.LogInformation("Retention deleted {Count} segments", deleted.Count);
+    }
+
+    private async Task DeleteOldEventsAsync(AppDbContext db, ServerOptions opt, DateTime now, CancellationToken ct)
+    {
+        var cutoff = now.AddDays(-opt.RetentionDays);
+        var old = await db.Events.Where(e => e.StartedUtc < cutoff).ToListAsync(ct);
+        if (old.Count == 0) return;
+        foreach (var e in old.Where(e => e.SnapshotPath is not null))
+        {
+            try { File.Delete(Path.Combine(opt.DataDir, e.SnapshotPath!)); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { logger.LogWarning(ex, "Cannot delete event snapshot {Path}", e.SnapshotPath); }
+        }
+
+        db.Events.RemoveRange(old);
+        await db.SaveChangesAsync(ct);
+        logger.LogInformation("Retention deleted {Count} events", old.Count);
     }
 
     private static void RemoveIfEmpty(string dir, int levels)

@@ -78,7 +78,10 @@ public static partial class ArchiveEndpoints
             var rows = await db.Segments.Where(s => s.CameraId == cam && s.LensId == lens && s.StartUtc >= d && s.StartUtc < end)
                 .OrderBy(s => s.StartUtc).ToListAsync(ct);
             var ranges = TimelineBuilder.Merge(rows, TimeSpan.FromSeconds(1.5)).Select(r => new { from = Z(r.FromUtc), to = Z(r.ToUtc) });
-            return Results.Ok(new { ranges, events = Array.Empty<object>() });
+            var events = (await db.Events.Where(e => e.CameraId == cam && e.LensId == lens && e.StartedUtc >= d && e.StartedUtc < end)
+                .OrderBy(e => e.StartedUtc).ToListAsync(ct))
+                .Select(e => new { e.Type, Lens = e.LensId, from = Z(e.StartedUtc), to = e.EndedUtc is { } x ? Z(x) : null });
+            return Results.Ok(new { ranges, events });
         });
 
         app.MapGet("/api/export", async (string cam, string lens, string? from, string? to, AppDbContext db, ExportService export,

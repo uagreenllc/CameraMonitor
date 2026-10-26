@@ -1,4 +1,7 @@
+using CameraMonitor.Api.Features.Cameras;
+using CameraMonitor.Api.Features.Events;
 using CameraMonitor.Api.Infrastructure;
+using Microsoft.Extensions.Options;
 
 namespace CameraMonitor.Api.Features.Streams;
 
@@ -18,10 +21,16 @@ public static class LiveEndpoints
             return Results.File(path, type, enableRangeProcessing: false);
         });
 
-        app.MapGet("/api/tile/{cam}/{lens}.jpg", async (string cam, string lens, TileService tiles, HttpContext http, CancellationToken ct) =>
+        app.MapGet("/api/tile/{cam}/{lens}.jpg", async (string cam, string lens, TileService tiles, XmAgentStore agents, IOptions<ServerOptions> server,
+            IOptionsMonitor<CamerasOptions> cameras, HttpContext http, CancellationToken ct) =>
         {
             if (!SafeName.IsSafe(cam) || !SafeName.IsSafe(lens)) return Results.BadRequest();
-            var jpeg = await tiles.GetAsync(new StreamKey(cam, lens), ct);
+            byte[]? jpeg = null;
+            // ponytail: measured on the real camera in Task 13; the default stays ffmpeg until then
+            if (server.Value.TileSource == "dvrip" && agents.Agent(cam) is { Client: not null } agent
+                && cameras.CurrentValue.Items.FirstOrDefault(c => c.Id == cam)?.Lenses.FirstOrDefault(x => x.Id == lens) is { } l)
+                jpeg = await agent.SnapshotAsync(l.DvripChannel, ct);
+            jpeg ??= await tiles.GetAsync(new StreamKey(cam, lens), ct);
             if (jpeg is null) return Results.NotFound();
             http.Response.Headers.CacheControl = "no-store";
             return Results.File(jpeg, "image/jpeg");

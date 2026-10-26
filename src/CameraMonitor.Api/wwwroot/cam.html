@@ -13,6 +13,15 @@
 <p><a id="arch" href="archive.html">Архів</a></p>
 <video id="v" controls autoplay muted playsinline></video>
 <p id="st" class="status"></p>
+<div id="ptz" class="ptz-controls" hidden>
+  <div class="pad" id="pad"></div>
+  <div class="presets">
+    <input type="number" id="preset" min="1" max="255" value="1">
+    <button type="button" data-a="goto">Перейти</button>
+    <button type="button" data-a="set">Зберегти</button>
+    <button type="button" data-a="clear">Видалити</button>
+  </div>
+</div>
 <script src="vendor/hls.min.js"></script>
 <script src="app.js"></script>
 <script>
@@ -45,7 +54,52 @@ startHls();
 api('/api/cameras').then(cams => {
   const c = cams.find(x => x.id === cam);
   if (c) { document.title = document.getElementById('title').textContent = `${c.name} · ${lens}`; }
+  if (c && c.lenses.some(l => l.id === lens && l.ptz)) initPtz();
 }).catch(() => {});
+
+async function ptzPost(url, body) {
+  try {
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!r.ok) {
+      let d = '';
+      try { d = (await r.json()).detail; } catch { }
+      setStatus(d || `Помилка ${r.status}`);
+    }
+  } catch { setStatus('Немає зв’язку з сервером'); }
+}
+
+function initPtz() {
+  const base = `/api/ptz/${encodeURIComponent(cam)}/${encodeURIComponent(lens)}`;
+  const keys = [['↖', 'DirectionLeftUp'], ['↑', 'DirectionUp'], ['↗', 'DirectionRightUp'],
+    ['◀', 'DirectionLeft'], ['·', null], ['▶', 'DirectionRight'],
+    ['↙', 'DirectionLeftDown'], ['↓', 'DirectionDown'], ['↘', 'DirectionRightDown']];
+  const pad = document.getElementById('pad');
+  const active = new Set();
+  const stopAll = () => { for (const b of [...active]) b.release(); };
+  const mk = (text, command) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = text;
+    if (!command) { b.disabled = true; return b; }
+    // one stop per press, whichever of pointerup/cancel/leave/blur arrives first
+    b.release = () => { if (active.delete(b)) ptzPost(base, { command, action: 'stop' }); };
+    b.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      if (active.has(b)) return;
+      active.add(b);
+      ptzPost(base, { command, action: 'start' });
+    });
+    for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) b.addEventListener(ev, b.release);
+    return b;
+  };
+  for (const [t, c] of keys) pad.appendChild(mk(t, c));
+  pad.appendChild(mk('Zoom +', 'ZoomTile'));
+  pad.appendChild(mk('Zoom −', 'ZoomWide'));
+  window.addEventListener('blur', stopAll);
+  document.querySelectorAll('.presets button').forEach(b => b.addEventListener('click', () =>
+    ptzPost(base + '/preset', { action: b.dataset.a, preset: +document.getElementById('preset').value })));
+  document.getElementById('ptz').hidden = false;
+}
 </script>
 </body>
 </html>

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Події</title>
+<link rel="stylesheet" href="app.css">
+<style>
+.controls { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; align-items: end; }
+.controls label { display: flex; flex-direction: column; gap: 2px; font-size: .85rem; color: #aaa; }
+select, input { background: #1a1a1a; color: #eee; border: 1px solid #333; border-radius: 4px; padding: 6px 8px; font: inherit; }
+#empty { color: #888; }
+</style>
+</head>
+<body>
+<nav id="nav"></nav>
+<h1>Події</h1>
+<div class="controls">
+  <label>Камера <select id="cam"><option value="">усі</option></select></label>
+  <label>Дата <input type="date" id="date"></label>
+</div>
+<div id="list"></div>
+<p id="empty" hidden>Нема подій за цей день</p>
+<script src="app.js"></script>
+<script>
+document.getElementById('nav').innerHTML = navHtml('events.html');
+const $ = id => document.getElementById(id);
+const pad = n => String(n).padStart(2, '0');
+const names = {};
+const label = t => ({ human: 'людина', motion: 'рух' }[t] || t);
+// the API takes UTC days; the picked local day spans two of them
+function utcDays(local) {
+  const s = new Date(local + 'T00:00').getTime();
+  return [...new Set([s, s + 86400000 - 1].map(t => new Date(t).toISOString().slice(0, 10)))];
+}
+async function load() {
+  const cam = $('cam').value;
+  const s = new Date($('date').value + 'T00:00').getTime(), e = s + 86400000;
+  try {
+    const parts = await Promise.all(utcDays($('date').value).map(d =>
+      api(`/api/events?day=${d}&limit=200${cam ? '&cam=' + encodeURIComponent(cam) : ''}`)));
+    const rows = parts.flat().filter(r => { const t = new Date(r.startedUtc).getTime(); return t >= s && t < e; })
+      .sort((a, b) => b.startedUtc.localeCompare(a.startedUtc));
+    $('empty').hidden = rows.length > 0;
+    $('list').innerHTML = rows.map(r => {
+      const href = `archive.html?cam=${encodeURIComponent(r.camera)}&lens=${encodeURIComponent(r.lens)}&t=${encodeURIComponent(r.startedUtc)}`;
+      const img = r.snapshot ? `<img src="${esc(r.snapshot)}" alt="" loading="lazy">` : 'без знімка';
+      return `<a class="ev" href="${href}"><div class="thumb">${img}</div><div>
+        <div><strong>${esc(label(r.type))}</strong></div>
+        <div>${esc(names[r.camera] || r.camera)} · ${esc(r.lens)}</div>
+        <div>${esc(fmtTime(r.startedUtc))} – ${r.endedUtc ? esc(fmtTime(r.endedUtc)) : 'триває'}</div></div></a>`;
+    }).join('');
+  } catch (err) { $('empty').hidden = false; $('empty').textContent = 'Не вдалося завантажити події'; }
+}
+$('cam').addEventListener('change', load);
+$('date').addEventListener('change', load);
+(async () => {
+  const d = new Date();
+  $('date').value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  try {
+    for (const c of await api('/api/cameras')) {
+      names[c.id] = c.name;
+      $('cam').insertAdjacentHTML('beforeend', `<option value="${esc(c.id)}">${esc(c.name)}</option>`);
+    }
+  } catch { }
+  load();
+  setInterval(load, 10000);
+})();
+</script>
+</body>
+</html>

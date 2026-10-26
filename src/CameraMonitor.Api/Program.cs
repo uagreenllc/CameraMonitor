@@ -62,6 +62,8 @@ app.MapCamerasEndpoints();
 app.MapLiveEndpoints();
 app.MapArchiveEndpoints();
 app.MapStatusEndpoints();
+app.MapPtzEndpoints();
+app.MapEventsEndpoints();
 app.Run();
 
 public partial class Program { }

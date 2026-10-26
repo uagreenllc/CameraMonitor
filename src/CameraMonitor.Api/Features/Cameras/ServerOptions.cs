@@ -14,5 +14,7 @@ public sealed class ServerOptions
     public int MinFreeGb { get; set; } = 100;
     public int MinRetentionDays { get; set; } = 3;
     public bool RecordAudio { get; set; }
+    /// <summary>"ffmpeg" | "dvrip".</summary>
+    public string TileSource { get; set; } = "ffmpeg";
     public string TimeZone { get; set; } = "Europe/Kyiv";
 }
