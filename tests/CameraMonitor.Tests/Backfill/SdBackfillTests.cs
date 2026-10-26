@@ -77,21 +77,31 @@ public sealed class SdBackfillTests : IAsyncLifetime
         p.ExitCode.Should().Be(0);
     }
 
-    /// <summary>The 25-s 15-fps test stream of Task 8, wrapped as one Xiongmai I-frame stamped with <paramref name="iFrameTime"/>.</summary>
-    private void AddSdFile(DateTime iFrameTime)
+    /// <summary>The 15-fps test stream of Task 8 (raw H.264), <paramref name="seconds"/> long.</summary>
+    private static byte[] RawH264(int seconds)
     {
         var dir = $"./cm-tests-data/sdsrc-{Guid.NewGuid():N}";
         Directory.CreateDirectory(dir);
         try
         {
             var raw = $"{dir}/raw.264";
-            Run("ffmpeg", $"-nostdin -loglevel error -f lavfi -i testsrc2=size=320x240:rate=15 -t 25 -c:v libx264 -preset veryfast -g 15 -bf 0 -pix_fmt yuv420p -f h264 {raw}");
-            var bytes = XmTestStream.IFrame(iFrameTime, 15, 320, 240, File.ReadAllBytes(raw));
-            _fake.Files.Add((new XmFileEntry("/idea0/2026-07-01/001/15.05.00-15.05.25[R][@1][0].h264",
-                new DateTime(2026, 7, 1, 15, 5, 0), new DateTime(2026, 7, 1, 15, 5, 25), bytes.Length / 1024, 1), bytes));
+            Run("ffmpeg", $"-nostdin -loglevel error -f lavfi -i testsrc2=size=320x240:rate=15 -t {seconds} -c:v libx264 -preset veryfast -g 15 -bf 0 -pix_fmt yuv420p -f h264 {raw}");
+            return File.ReadAllBytes(raw);
         }
         finally { Directory.Delete(dir, true); }
     }
+
+    /// <summary>A card file on channel 1 wrapped as one Xiongmai I-frame stamped with <paramref name="iFrameTime"/>.</summary>
+    private void AddFile(byte[] raw, DateTime iFrameTime, DateTime beginLocal, DateTime endLocal)
+    {
+        var bytes = XmTestStream.IFrame(iFrameTime, 15, 320, 240, raw);
+        _fake.Files.Add((new XmFileEntry($"/idea0/{beginLocal:yyyy-MM-dd}/001/{beginLocal:HH.mm.ss}-{endLocal:HH.mm.ss}[R][@1][0].h264",
+            beginLocal, endLocal, bytes.Length / 1024, 1), bytes));
+    }
+
+    /// <summary>The 25-s stream as the card file 15:05:00–15:05:25 local.</summary>
+    private void AddSdFile(DateTime iFrameTime) =>
+        AddFile(RawH264(25), iFrameTime, new DateTime(2026, 7, 1, 15, 5, 0), new DateTime(2026, 7, 1, 15, 5, 25));
 
     [FfmpegFact]
     public async Task Gap_is_filled_from_sd_with_true_start_and_source_sd()
@@ -127,6 +137,52 @@ public sealed class SdBackfillTests : IAsyncLifetime
         rows.Select(r => r.StartUtc).Should().Equal(At(5, 10), At(5, 20));
         rows[0].Discontinuity.Should().BeTrue();
         _status.GetOrAdd("c1").SegmentsAdded.Should().Be(2);
+    }
+
+    [FfmpegFact]
+    public async Task Segment_indexed_by_someone_else_meanwhile_keeps_its_file()
+    {
+        await Seed((At(0), 300_000), (At(10), 1_200_000));
+        using (var scope = _factory.Services.CreateScope())
+        {
+            // As if DirectoryScanner had indexed the moved file at its mtime before our insert.
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.Segments.Add(new SegmentRow { CameraId = "c1", LensId = "ptz", StartUtc = At(20), DurationMs = 10_000, Path = "rec/c1/ptz/20260701/12/120500.ts" });
+            await db.SaveChangesAsync();
+        }
+
+        AddSdFile(new DateTime(2026, 7, 1, 15, 5, 0));
+
+        await _sd.RunOnceAsync("c1", CancellationToken.None);
+
+        File.Exists(Path.Combine(_factory.DataDir, "rec/c1/ptz/20260701/12/120500.ts")).Should().BeTrue("the other row points at it");
+        (await SdRows()).Select(r => r.StartUtc).Should().Equal(At(5, 10), At(5, 20));
+        _status.GetOrAdd("c1").LastError.Should().BeNull();
+    }
+
+    [FfmpegFact]
+    public async Task At_most_MaxFilesPerRun_files_per_run_newest_first()
+    {
+        await Seed((new DateTime(2026, 7, 1, 11, 0, 0, DateTimeKind.Utc), 3_600_000));   // the gap is [12:00, 12:28)
+        var raw = RawH264(10);
+        for (var i = 0; i < 25; i++)
+        {
+            var local = new DateTime(2026, 7, 1, 15, i, 0);   // 12:i UTC
+            AddFile(raw, local, local, local.AddSeconds(10));
+        }
+
+        await _sd.RunOnceAsync("c1", CancellationToken.None);
+
+        var st = _status.GetOrAdd("c1");
+        st.FilesDone.Should().Be(SdBackfill.MaxFilesPerRun);
+        (await SdRows()).Select(r => r.StartUtc.Minute).Distinct().Should().Equal(Enumerable.Range(5, 20));
+        _sd.Pending.Should().Contain("c1", "a run cut short by the cap continues soon");
+
+        await _sd.RunOnceAsync("c1", CancellationToken.None);
+
+        st.FilesDone.Should().Be(25);
+        (await SdRows()).Select(r => r.StartUtc.Minute).Distinct().Should().Equal(Enumerable.Range(0, 25));
+        st.LastError.Should().BeNull();
     }
 
     [FfmpegFact]

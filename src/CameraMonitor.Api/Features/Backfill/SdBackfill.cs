@@ -23,6 +23,9 @@ public sealed class SdBackfill(
     public static readonly TimeSpan MaxFileSkew = TimeSpan.FromHours(1);
     public const int MaxGapsPerRun = 20;
 
+    /// <summary>Files downloaded per camera per run: one run must not hold the gate for hours on a new install.</summary>
+    public const int MaxFilesPerRun = 20;
+
     private static readonly TimeSpan QuerySlack = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan Settle = TimeSpan.FromMinutes(2);   // the live recorder may still be writing the last minutes
     private static readonly TimeSpan MaxRowLength = TimeSpan.FromHours(1);
@@ -34,7 +37,11 @@ public sealed class SdBackfill(
 
     // ponytail: lost on restart, so a no-files gap is queried once more after a restart
     private readonly HashSet<(StreamKey Key, Gap Gap)> _exhausted = [];
-    private readonly SemaphoreSlim _gate = new(1, 1);   // one run at a time: guards _exhausted and the status counters
+
+    // ponytail: marked once downloaded, even if the remux then fails; a corrupt file must not be fetched every run. Lost on restart.
+    private readonly HashSet<(StreamKey Key, string FileName, DateTime EndLocal)> _doneFiles = [];
+    private readonly SemaphoreSlim _gate = new(1, 1);   // one run at a time: guards _exhausted, _doneFiles, _filesLeft and the status counters
+    private int _filesLeft = MaxFilesPerRun;
     private TaskCompletionSource _wake = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private TimeZoneInfo? _tz;
 
@@ -128,6 +135,8 @@ public sealed class SdBackfill(
             var to = now - Settle;
             var minGap = TimeSpan.FromSeconds(o.SdMinGapSeconds);
             _exhausted.RemoveWhere(e => e.Gap.ToUtc < from);
+            _doneFiles.RemoveWhere(f => ToUtc(f.EndLocal) < from);
+            _filesLeft = MaxFilesPerRun;
             var work = new List<(LensConfig Lens, Gap Gap)>();
             using (var scope = scopes.CreateScope())
             {
@@ -163,6 +172,11 @@ public sealed class SdBackfill(
                 }
 
                 st.Queued--;
+                if (_filesLeft == 0)
+                {
+                    Trigger(cameraId);   // continue soon, after the other pending cameras had their turn
+                    break;
+                }
             }
         }
         finally
@@ -202,8 +216,17 @@ public sealed class SdBackfill(
             : FfmpegArgs.NormalizePath(Path.Combine(o.DataDir, "rec", cam.Id, lens.Id));
 
         var added = 0;
-        foreach (var file in files.OrderBy(f => f.BeginLocal))
+        var cutShort = false;
+        // Newest first: the card overwrites its oldest files, and the newest gaps are the ones people look for.
+        foreach (var file in files.Where(f => !_doneFiles.Contains((key, f.FileName, f.EndLocal))).OrderByDescending(f => f.BeginLocal))
         {
+            if (_filesLeft == 0)
+            {
+                cutShort = true;   // not exhausted: the next run continues with the older files
+                break;
+            }
+
+            _filesLeft--;
             var tmp = Path.Combine(o.DataDir, "tmp", "sd", cam.Id, lens.Id, Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tmp);
             try
@@ -214,6 +237,8 @@ public sealed class SdBackfill(
                 {
                     await client.DownloadAsync(file, new XmStripStream(parser, output), ct);
                 }
+
+                _doneFiles.Add((key, file.FileName, file.EndLocal));
 
                 if (parser.FirstIFrame is not { } first)
                 {
@@ -252,6 +277,9 @@ public sealed class SdBackfill(
                     Directory.CreateDirectory(Path.GetDirectoryName(target)!);
                     try
                     {
+                        // Fresh mtime: DirectoryScanner indexes unknown files older than MinAge by mtime, and remuxing plus
+                        // moving a long card file takes longer than that. Wall clock on purpose: the scanner compares file mtimes.
+                        File.SetLastWriteTimeUtc(seg.Path, DateTime.UtcNow);
                         File.Move(seg.Path, target);
                     }
                     catch (IOException e)
@@ -281,7 +309,22 @@ public sealed class SdBackfill(
                     catch (Exception e)
                     {
                         db.Entry(row).State = EntityState.Detached;
-                        File.Delete(target);
+                        if (e is DbUpdateException && await db.Segments.AnyAsync(r => r.Path == row.Path, CancellationToken.None))
+                        {
+                            // Someone (DirectoryScanner) indexed the file meanwhile: its row points at it, so keep the file.
+                            logger.LogWarning("SD backfill {Camera}/{Lens}: {Target} was indexed by someone else, kept", cam.Id, lens.Id, target);
+                            continue;
+                        }
+
+                        try
+                        {
+                            File.Delete(target);
+                        }
+                        catch (Exception deleteError) when (deleteError is IOException or UnauthorizedAccessException)
+                        {
+                            logger.LogWarning("SD backfill {Camera}/{Lens}: {Target} not deleted: {Error}", cam.Id, lens.Id, target, deleteError.Message);
+                        }
+
                         if (e is not DbUpdateException)
                         {
                             throw;
@@ -305,7 +348,7 @@ public sealed class SdBackfill(
             }
         }
 
-        if (added == 0)
+        if (added == 0 && !cutShort)
         {
             _exhausted.Add((key, gap));   // the card has nothing usable here: do not download the same files every run
         }
