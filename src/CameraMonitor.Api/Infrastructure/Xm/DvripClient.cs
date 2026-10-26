@@ -449,11 +449,9 @@ public sealed class DvripClient(string host, int port, string user, string passw
     {
         try
         {
-            if (DvripCodec.ParseJson(payload)?["AlarmInfo"] is JsonObject a)
+            if (ParseAlarmInfo(DvripCodec.ParseJson(payload)) is { } alarm)
             {
-                DateTime? start = a["StartTime"] is JsonValue v && v.TryGetValue<string>(out var s)
-                    && DateTime.TryParseExact(s, TimeFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var t) ? t : null;
-                return new AlarmInfo(a["Channel"]?.GetValue<int>() ?? 0, a["Event"]?.GetValue<string>() ?? "", a["Status"]?.GetValue<string>() ?? "", start);
+                return alarm;
             }
         }
         catch (Exception e) when (e is InvalidOperationException or FormatException)
@@ -464,6 +462,19 @@ public sealed class DvripClient(string host, int port, string user, string passw
 
         logger.LogWarning("DVRIP alarm from {Host} has no AlarmInfo", host);
         return null;
+    }
+
+    /// <summary>The <see cref="AlarmInfo"/> in a {"AlarmInfo":{...}} body, or null when there is none; throws on malformed fields.</summary>
+    internal static AlarmInfo? ParseAlarmInfo(JsonNode? body)
+    {
+        if (body?["AlarmInfo"] is not JsonObject a)
+        {
+            return null;
+        }
+
+        DateTime? start = a["StartTime"] is JsonValue v && v.TryGetValue<string>(out var s)
+            && DateTime.TryParseExact(s, TimeFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var t) ? t : null;
+        return new AlarmInfo(a["Channel"]?.GetValue<int>() ?? 0, a["Event"]?.GetValue<string>() ?? "", a["Status"]?.GetValue<string>() ?? "", start);
     }
 
     private void Raise<T>(Action<T>? handlers, T arg, string name)

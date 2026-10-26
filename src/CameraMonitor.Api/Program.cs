@@ -45,6 +45,7 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<RetentionService>(
 builder.Services.AddHostedService<StreamSupervisor>();
 builder.Services.AddSingleton<XmAgentStore>();
 builder.Services.AddHostedService<XmAgentSupervisor>();
+builder.Services.AddHostedService<XmAlarmServer>();
 
 var app = builder.Build();
 await DbSetup.MigrateAsync(app.Services, CancellationToken.None);

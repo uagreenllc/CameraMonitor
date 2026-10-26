@@ -331,6 +331,30 @@ public sealed class XmCameraAgent(
             _state.Gop = 1;
         }, ct);
 
+        if (server.Value is { XmAlarmServerPort: > 0, XmAlarmServerHost: { Length: > 0 } alarmHost } options)
+        {
+            var alarmPort = options.XmAlarmServerPort;
+            await StepAsync("EnsureAlarmServer", async () =>
+            {
+                var cfg = await client.GetConfigAsync("NetWork.AlarmServer", ct) as JsonObject
+                    ?? throw new DvripException(-1, "NetWork.AlarmServer config is empty");
+                var changed = Set(cfg, "Enable", true);
+                changed |= SetValue(cfg, "Address", alarmHost);
+                changed |= SetValue(cfg, "Port", alarmPort);
+                if (cfg.ContainsKey("Protocol"))
+                {
+                    changed |= SetValue(cfg, "Protocol", "TCP");
+                }
+
+                if (changed)
+                {
+                    await client.SetConfigAsync("NetWork.AlarmServer", cfg, ct);
+                }
+
+                logger.LogInformation("DVRIP {Camera}: alarm server {Result} ({Host}:{Port})", cam.Id, changed ? "configured" : "already configured", alarmHost, alarmPort);
+            }, ct);
+        }
+
         // Close stale events before alarms flow (the brief lists this after Guard): an alarm that starts right after
         // Guard must not be closed by this cleanup.
         await StepAsync("CloseOpenEvents", () => CloseOpenEventsAsync(ct), ct);
@@ -413,6 +437,18 @@ public sealed class XmCameraAgent(
         }
 
         o[key] = value;
+        return true;
+    }
+
+    private static bool SetValue<T>(JsonObject o, string key, T value)
+    {
+        var next = JsonValue.Create(value)!;
+        if (o[key] is { } current && current.ToJsonString() == next.ToJsonString())
+        {
+            return false;
+        }
+
+        o[key] = next;
         return true;
     }
 

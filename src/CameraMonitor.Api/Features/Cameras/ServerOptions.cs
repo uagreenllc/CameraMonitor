@@ -17,4 +17,10 @@ public sealed class ServerOptions
     /// <summary>"ffmpeg" | "dvrip".</summary>
     public string TileSource { get; set; } = "ffmpeg";
     public string TimeZone { get; set; } = "Europe/Kyiv";
+
+    /// <summary>TCP port of the alarm-server fallback; 0 = disabled.</summary>
+    public int XmAlarmServerPort { get; set; }
+
+    /// <summary>This server's LAN IP as the cameras must reach it; written into the cameras' NetWork.AlarmServer.</summary>
+    public string? XmAlarmServerHost { get; set; }
 }
